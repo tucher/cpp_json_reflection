@@ -27,6 +27,7 @@ Maps structures to/from JSON without macros and code generation
         struct RootObject_ {
             JS<InnerStruct3,            "obj">          obj;
             JS<std::int64_t,            "a">            a;
+            std::string                                 UNAVAILABLE_FOR_JSON;
             JS<list<JS<InnerStruct>>,   "values_array"> values;
             JS<InnerStruct2,            "params">       params;
         };
@@ -61,3 +62,9 @@ Maps structures to/from JSON without macros and code generation
 ### Serialisation:
     
     root.Serialize(std::cout);
+
+### Performance
+- No memory overhead:
+
+        static_assert (sizeof(JS<RootObject_>) == sizeof (RootObject_) );
+    Key strings are ```static constexpr``` and stored inside ```JS<T, "key">```

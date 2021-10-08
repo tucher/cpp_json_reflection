@@ -3,7 +3,7 @@
 
 using JSONReflection::JS;
 
-using std::vector, std::list;
+using std::vector, std::list, std::array;
 
 struct InnerStruct {
     JS<std::string, "name">  name;
@@ -25,12 +25,39 @@ struct InnerStruct3 {
 struct RootObject_ {
     JS<InnerStruct3,            "obj">          obj;
     JS<std::int64_t,            "a">            a;
+    std::string                                 UNAVAILABLE_FOR_JSON;
     JS<list<JS<InnerStruct>>,   "values_array"> values;
     JS<InnerStruct2,            "params">       params;
 };
 
 using RootObject = JS<RootObject_>;
 
+static_assert (sizeof(JS<RootObject_>) == sizeof (RootObject_) );
+
+struct InnerFreeObject {
+    JS<bool, "flag_1"> f1;
+    JS<bool, "flag_2"> f2;
+};
+
+struct FreeObject_ {
+    JS<InnerFreeObject,              "flags">          flags;
+    JS<std::int64_t,                 "counter"  >      counter;
+    JS<array<JS<InnerFreeObject>, 3>,"flags_array">   flag_array;
+};
+
+using FreeObject = JS<FreeObject_>;
+
+FreeObject compileTimeInit{{
+        {{ .f1{true}, .f2{true} }},
+        {0},
+        {{{
+           {{ .f1{true}, .f2{true} }},
+           {{ .f1{true}, .f2{true} }},
+           {{ .f1{true}, .f2{true} }}
+        }}}
+}};
+
+static_assert (std::is_trivially_copyable_v<FreeObject>);
 
 void f1(InnerStruct2 & s) {
     s.p3 = true;
@@ -59,6 +86,7 @@ int main()
     InnerStruct ins1{std::string("fu"), 42};
 
     RootObject t2;
+    t2.a = 100500;
     t2.obj.value.p6.name = "hello";
     f1(t2.obj.value);
 
@@ -86,7 +114,6 @@ int main()
 
 
     t2.Serialize(std::cout);
-
 
 
     return 0;
