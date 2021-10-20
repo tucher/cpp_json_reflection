@@ -67,4 +67,4 @@ Maps structures to/from JSON without macros and code generation
 - No memory overhead:
 
         static_assert (sizeof(JS<RootObject_>) == sizeof (RootObject_) );
-    Key strings are ```static constexpr``` and stored inside ```JS<T, "key">```
+    Key strings are ```static constexpr``` and stored inside ```JS<T, "key">``` type
