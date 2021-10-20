@@ -142,8 +142,37 @@ int main()
         }
     )");
 
+    std::string inp3(R"(
+        {
+            "obj": {
+                "3level_nesting": {
+                    "p1": "deser1",
+                    "p2":0,
+                    "p3":0,
+                    "p4": false,
+                    "inner_struct": {
+                        "name":"deser2",
+                        "value":0
+                    }
+                }
+            },
+            "a":123456,
 
+            "params":{
+                "p1":"",
+                "p2":0,
+                "p3":0,
+                "p4":false,
+                "inner_struct": {
+                    "name":"deser6","value":0
+                }
+            }
+        }
+    )");
 
+    RootObject t3;
+
+    bool res1 = t3.Deserialise(inp3.begin(), inp3.end());
 
     JS<bool, ""> boolV{true};
     boolV = false;
@@ -164,21 +193,23 @@ int main()
 
     std::cout << std::endl << std::endl;
     std::cout << std::flush;
-    static_assert (std::forward_iterator<decltype (inp.end())>);
 
 
     struct DeserTestObj {
         JS<bool, "flag_1"> f1 = true;
-//        JS<bool, "flag_2"> f2 = false;
+        JS<bool, "flag_2"> f2 = false;
     };
 
     JS<DeserTestObj> deserTester;
+
     std::string inp1(R"(
         {
            "flag_1": false,
+            "fuuu": {"f1": [1, 2, 3, 4], "f2":false},
            "flag_2": true
         }
     )");
+
 
     bool res = deserTester.Deserialise(inp1.begin(), inp1.end());
     std::cout << "Deserialisation result: " << res << std::endl;
@@ -225,9 +256,8 @@ int main()
     });
 
 
-    RootObject t3;
 
-//    t3.Deserialize(inp);
+
 
     return 0;
 }

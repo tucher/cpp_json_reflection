@@ -63,6 +63,12 @@ concept StringTypeConcept = requires (T && v) {
 };
 
 template <typename T>
+concept DynamicStringTypeConcept = StringTypeConcept<T> && requires (T && v) {
+        v.push_back(std::declval<typename T::value_type>());
+        v.clear();
+};
+
+template <typename T>
 concept SerializerOutputCallbackConcept = requires (T && clb) {
     {clb(std::declval<const char*>(), std::declval<std::size_t>())} -> std::convertible_to<bool>;
 };
@@ -102,9 +108,56 @@ bool skipWhiteSpace(std::forward_iterator auto & begin, const std::forward_itera
     return true;
 }
 
+bool skipTillPlainEnd(std::forward_iterator auto & begin, const std::forward_iterator auto & end) {
+    while(begin != end && !std::isspace(*begin, std::locale::classic())
+          && *begin != ','
+          && *begin != '}'
+          && *begin != ']')
+        begin ++;
+    if (begin == end) return false;
+    return true;
+}
 
 bool skipJsonValue(std::forward_iterator auto & begin, const std::forward_iterator auto & end) {
-    return false;
+    if(!skipWhiteSpace(begin, end)) return false;
+    int level = 0;
+    enum class Where {
+        IN_OBJ,
+        IN_ARRAY,
+        IN_PLAIN
+    };
+    Where wh;
+    if(*begin != '[' && *begin != '{') {
+        return skipTillPlainEnd(begin, end);
+    }
+
+    do {
+        switch(*begin) {
+        case '[':
+            wh = Where::IN_ARRAY;
+            level ++;
+            break;
+        case '{':
+            wh = Where::IN_OBJ;
+            level ++;
+            break;
+        case '}':
+//            if(wh != Where::IN_OBJ) return false;
+            level --;
+            break;
+        case ']':
+            level --;
+            break;
+        }
+
+       begin ++;
+
+    } while(level != 0 && begin != end);
+
+    if(begin == end)
+        return false;
+
+    return true;
 }
 
 
@@ -242,7 +295,107 @@ public:
 
     template<class InpIter> requires std::forward_iterator<InpIter>
     bool DeserialiseInternal(InpIter & begin, const InpIter & end) {
-       return false;
+        if(!skipWhiteSpace(begin, end)) return false;
+
+        if constexpr(std::same_as<bool, Src>) {
+            char fc = *begin;
+            begin++;
+            if(fc == 't') {
+                char v[] = "rue";
+                for(int i = 0; i < 3; i ++) {
+                    if(begin == end) {
+                        return false;
+                    }
+                    if(*begin != v[i]) {
+                        return false;
+                    }
+                    begin ++;
+                }
+                content = true;
+                return true;
+            }
+            else if(fc == 'f') {
+                char v[] = "alse";
+                for(int i = 0; i < 4; i ++) {
+                    if(begin == end) {
+                        return false;
+                    }
+                    if(*begin != v[i]) {
+                        return false;
+                    }
+                    begin ++;
+                }
+                content = false;
+                return true;
+            } else
+                return false;
+        } else if constexpr(StringTypeConcept<Src>) {
+            if(!skipWhiteSpaceTill(begin, end, '"'))
+                return false;
+
+            auto strBegin = begin;
+            auto strEnd = findJsonKeyStringEnd(begin, end);
+            if(strEnd == end)
+                return false;
+            begin = strEnd;
+            begin ++;
+            if(begin == end)
+                return false;
+
+            if constexpr (DynamicStringTypeConcept<Src>) { //dynamic
+                content.clear();
+                while(strBegin != strEnd) {
+                    content.push_back(*strBegin);
+                    strBegin ++;
+                }
+                return true;
+            } else { // static string
+                std::size_t index = 0;
+                while(strBegin != strEnd) {
+                    content[index] = *strBegin;
+                    strBegin ++;
+                    index ++;
+                    if(index > content.size()) {
+                        return false;
+                    }
+                }
+                for(; index < content.size(); index ++) {
+                    content[index] = '\0';
+                }
+            }
+
+            return true;
+        } else if constexpr(std::same_as<double, Src>) {
+            char buf[26];
+            std::size_t index = 0;
+            while(begin != end && *begin != ','&& *begin != ']'&& *begin != '}') {
+                buf[index] = *begin;
+                begin ++;
+                index ++;
+                if(index > sizeof (buf) - 1) {
+                    return false;
+                }
+            }
+            buf[index] = 0;
+            if(sscanf(buf, "%lg", &content) != 1)
+                return false;
+            return true;
+        } else if constexpr(std::same_as<std::int64_t, Src>) {
+            char buf[26];
+            std::size_t index = 0;
+            while(begin != end && *begin != ','&& *begin != ']'&& *begin != '}') {
+                buf[index] = *begin;
+                begin ++;
+                index ++;
+                if(index > sizeof (buf) - 1) {
+                    return false;
+                }
+            }
+            buf[index] = 0;
+            if(sscanf(buf, "%lld", &content) != 1)
+                return false;
+            return true;
+        }
     }
 };
 
@@ -256,9 +409,9 @@ public:
         if(char v[] = "["; !clb(v, sizeof(v))) {
             return false;
         }
-        std::size_t last = static_cast<Src>(*this).size()-1;
+        std::size_t last = static_cast<const Src&>(*this).size()-1;
         std::size_t i = 0;
-        for(const auto & item: static_cast<Src>(*this)) {
+        for(const auto & item: static_cast<const Src&>(*this)) {
             if(!item.Serialize(std::forward<std::decay_t<decltype(clb)>>(clb))) {
                 return false;
             }
@@ -345,7 +498,7 @@ public:
 
     bool Serialize(SerializerOutputCallbackConcept auto && clb) const {
         std::size_t last_index = 0;
-        pfr::for_each_field(static_cast<Src>(*this), [&last_index]<class T>(const T & val, std::size_t index){
+        pfr::for_each_field(static_cast<const Src &>(*this), [&last_index]<class T>(const T & val, std::size_t index){
             if constexpr(JSONWrappedValue<T>) { last_index = index;}
         });
         if(char v[] = "{"; !clb(v, sizeof(v))) {
@@ -380,7 +533,7 @@ public:
                 }
             }
         };
-        pfr::for_each_field(static_cast<Src>(*this), visitor);
+        pfr::for_each_field(static_cast<const Src &>(*this), visitor);
         if(!r) return false;
         if(char v[] = "}"; !clb(v, sizeof(v))) {
             return false;
@@ -411,24 +564,50 @@ public:
             }
         };
         int namesOffs = 0;
+        auto searchStart = sortedKeyIndexArray.begin();
+        auto searchEnd = sortedKeyIndexArray.end();
         for(auto sI = keyBegin; sI != keyEnd; sI ++) {
-            auto rng = std::ranges::equal_range(sortedKeyIndexArray, *keyBegin,  std::ranges::less{}, proj{namesOffs});
+            auto rng = std::ranges::equal_range(searchStart, searchEnd, *sI,  std::ranges::less{}, proj{namesOffs});
             if(rng.empty()) {
                 return skipJsonValue(begin, end);
             } else if(rng.size() == 1) {
-                return swl::visit(
-                        [this, &begin, &end]<class KeyIndexType>(KeyIndexType keyIndex) -> bool{
+                bool skip = false;
+                bool deserRes = swl::visit(
+                        [this, &begin, &end, &namesOffs, &sI, &keyEnd, &skip]<class KeyIndexType>(KeyIndexType keyIndex) -> bool{
                                 if constexpr(KeyIndexType::skip == false) {
+                                    //check field name
+
+                                    for(std::size_t i = namesOffs; i < KeyIndexType::FieldName.Length; i ++) {
+                                        if(sI == keyEnd) {
+                                            skip = true;
+                                            return false;
+                                        }
+                                        if(KeyIndexType::FieldName.m_data[i] != *sI) {
+                                            skip = true;
+                                            return false;
+                                        }
+                                        sI ++;
+                                    }
+                                    if(sI != keyEnd) {
+                                        skip = true;
+                                        return false;
+                                    }
+
                                     using FieldType = pfr::tuple_element_t<KeyIndexType::OriginalIndex, Src>;
-//                                    pfr::get<KeyIndexType::OriginalIndex>(static_cast<Src>(*this)) = false;
-//                                    FieldType & field = pfr::get<KeyIndexType::OriginalIndex>(static_cast<Src>(*this));
-//                                    return field.DeserialiseInternal(begin, end, stoppedAt);
-                                    return pfr::get<KeyIndexType::OriginalIndex>(static_cast<Src>(*this)).DeserialiseInternal(begin, end);
+                                    FieldType & f = pfr::get<KeyIndexType::OriginalIndex>(static_cast<Src &>(*this));
+                                    return f.DeserialiseInternal(begin, end);
 
                                 } else
                                     return false;
                         }
                , rng.front());
+                if(skip) {
+                    return skipJsonValue(begin, end);
+                }
+                return deserRes;
+            } else {
+                searchStart = rng.begin();
+                searchEnd = rng.end();
             }
             namesOffs ++;
         }
@@ -445,13 +624,15 @@ public:
         if(!skipWhiteSpaceTill(begin, end, '{')) return false;
 
         while(begin != end) {
-            if(!skipWhiteSpace(begin, end)) return false;
+            if(!skipWhiteSpace(begin, end))
+                return false;
             if(*begin == '}') {
                 begin ++;
                 return true;
             }
 
-            if(!skipWhiteSpaceTill(begin, end, '"')) return false;
+            if(!skipWhiteSpaceTill(begin, end, '"'))
+                return false;
             InpIter keyBegin = begin;
 
             InpIter keyEnd = findJsonKeyStringEnd(keyBegin, end);
@@ -461,12 +642,16 @@ public:
             begin ++;
             if(begin == end)
                 return false;
-            if(!skipWhiteSpaceTill(begin, end, ':')) return false;
+            if(!skipWhiteSpaceTill(begin, end, ':'))
+                return false;
 
+            auto prevB = begin;
             bool ok = DeserialiseField(keyBegin, keyEnd, begin, end);
-            if(!ok) return false;
+            if(!ok)
+                return false;
 
-            if(!skipWhiteSpace(begin, end)) return false;
+            if(!skipWhiteSpace(begin, end))
+                return false;
             if(*begin == ',') {
                 begin ++;
             }
