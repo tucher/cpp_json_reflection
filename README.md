@@ -47,7 +47,7 @@ Maps structures to/from JSON without macros and code generation
 - To use JSON array, use this technique:
 
         using ArrayFieldT = JS<ContainerT<T>>;
-    Where T is type already wrapped into JS<> and ContainerT is std::list, std::vector or something compatible.
+    Where T is type already wrapped into JS<> and ContainerT is std::list, std::vector, std::array or something compatible.
 
 - Initialisation:
 
@@ -59,9 +59,27 @@ Maps structures to/from JSON without macros and code generation
             }}
         }};
     Addititinal {} pair is needed.
+
+- Default values could be given in object type declaration:
+
+        struct Object {
+            JS<bool, "flag_1"> f1 = true;
+            JS<bool, "flag_2"> f2 = false;
+        };
+
 ### Serialisation:
     
-    root.Serialize(std::cout);
+    root.Serialize([](const char * d, std::size_t size){
+        std::cout << std::string(d, size);
+        return true;
+    });
+
+### Deserialisation:
+
+    bool res = root.Deserialize(IteratorBegin, IteratorEnd);
+or
+
+    bool res = root.Deserialize(ContainerWithChars);
 
 ### Performance
 - No memory overhead:

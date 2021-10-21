@@ -6,42 +6,31 @@
 #include <concepts>
 #include <cmath>
 
-#define JSMN_HEADER
-#define JSMN_STRICT
-
-#include "jsmn.h"
 #include <inttypes.h>
 #include <iterator>
-#include <locale>
 #include <swl/variant.hpp>
 #include <algorithm>
+#include <fast_double_parser.h>
 
 namespace JSONReflection {
 
 
 template <typename CharT, std::size_t N> struct JSONFieldNameStringLiteral
 {
-    static constexpr bool checkQuotes(const CharT (&foo)[N+1]) {
-        for(int i = 0; i <= N; i ++) {
-            if(foo[i]=='"' && foo[i-1] != '\\') return false;
-        }
-        return true;
-    }
     constexpr JSONFieldNameStringLiteral(const CharT (&foo)[N+1]) {
-//        static_assert(checkQuotes(foo));
         std::copy_n(foo, N+1, m_data);
     }
     CharT m_data[N+1];
     static constexpr std::size_t Length = N;
     static constexpr std::size_t CharSize = sizeof (CharT);
 };
+
 template <typename CharT, std::size_t N>
 JSONFieldNameStringLiteral(const CharT (&str)[N])->JSONFieldNameStringLiteral<CharT, N-1>;
 
 struct JSONValueKindEnumPlain {};
 struct JSONValueKindEnumObject {};
 struct JSONValueKindEnumArray {};
-
 
 template<typename T>
 concept JSONWrappedValue = requires {
@@ -52,21 +41,26 @@ concept JSONWrappedValue = requires {
         };
 
 
-
 template <typename T>
 concept StringTypeConcept = requires (T && v) {
     typename T::value_type;
     std::is_pointer_v<decltype(v.data())>;
     std::is_integral_v<std::remove_pointer_t<decltype(v.data())>>;
     {v.size()} -> std::convertible_to<std::size_t>;
+    {v[0]} -> std::convertible_to<typename T::value_type>;
     requires !JSONWrappedValue<typename T::value_type>;
 };
 
 template <typename T>
-concept DynamicStringTypeConcept = StringTypeConcept<T> && requires (T && v) {
+concept DynamicContainerTypeConcept = requires (T && v) {
+        typename T::value_type;
         v.push_back(std::declval<typename T::value_type>());
         v.clear();
 };
+
+
+template <typename T>
+concept DynamicStringTypeConcept = StringTypeConcept<T> && DynamicContainerTypeConcept<T>;
 
 template <typename T>
 concept SerializerOutputCallbackConcept = requires (T && clb) {
@@ -84,32 +78,23 @@ concept JSONObjectValue = std::is_class_v<T> && !JSONArrayValue<T> && !JSONBasic
 
 
 
-template <JSONFieldNameStringLiteral Str = "">
-struct A {
-    static constexpr auto str = Str;
-};
-
-using hello_A = A<"hello">;
-static_assert (decltype(hello_A::str)::Length == 5);
-
-using hello_A2 = A<>;
-static_assert (decltype(hello_A2::str)::Length == 0);
-
-
 template <class Src, JSONFieldNameStringLiteral Str = "">
 requires JSONBasicValue<Src> || JSONArrayValue<Src> || JSONObjectValue<Src>
 class JS {
 };
 
+bool isSpace(char a) {
+    return a == 0x20 || a == 0x0A || a == 0x0D || a == 0x09;
+}
 bool skipWhiteSpace(std::forward_iterator auto & begin, const std::forward_iterator auto & end) {
-    while(begin != end && std::isspace(*begin, std::locale::classic()))
+    while(begin != end && isSpace(*begin))
         begin ++;
     if (begin == end) return false;
     return true;
 }
 
 bool skipTillPlainEnd(std::forward_iterator auto & begin, const std::forward_iterator auto & end) {
-    while(begin != end && !std::isspace(*begin, std::locale::classic())
+    while(begin != end && !isSpace(*begin)
           && *begin != ','
           && *begin != '}'
           && *begin != ']')
@@ -171,7 +156,7 @@ bool skipTill(std::forward_iterator auto & begin, const std::forward_iterator au
 
 bool skipWhiteSpaceTill(std::forward_iterator auto & begin, const std::forward_iterator auto & end, char s) {
     while(begin != end) {
-        if(std::isspace(*begin, std::locale::classic())) {
+        if(isSpace(*begin)) {
            begin ++;
         } else if(*begin == s) {
             begin ++;
@@ -243,7 +228,7 @@ public:
     operator Src&() {
         return content;
     }
-    JS(): content(Src())  {
+    constexpr JS(): content(Src())  {
 
     }
     JS(const Src & val):content(val)  {
@@ -268,8 +253,16 @@ public:
             if(char v[] = "\""; !clb(v, sizeof(v))) {
                 return false;
             }
-            if(!clb(reinterpret_cast<const char*>(content.data()), content.size() * sizeof (typename Src::value_type))) {
-                return false;
+            if constexpr(DynamicStringTypeConcept<Src>) {
+                if(!clb(reinterpret_cast<const char*>(content.data()), content.size() * sizeof (typename Src::value_type))) {
+                    return false;
+                }
+            } else {
+                std::size_t zp = 0;
+                while(zp < content.size () && content[zp] != 0) zp ++;
+                if(!clb(reinterpret_cast<const char*>(content.data()), zp * sizeof (typename Src::value_type))) {
+                    return false;
+                }
             }
             if(char v[] = "\""; !clb(v, sizeof(v))) {
                 return false;
@@ -365,7 +358,7 @@ public:
             }
 
             return true;
-        } else if constexpr(std::same_as<double, Src>) {
+        } else if constexpr(std::same_as<double, Src> || std::same_as<std::int64_t, Src>) {
             char buf[26];
             std::size_t index = 0;
             while(begin != end && *begin != ','&& *begin != ']'&& *begin != '}') {
@@ -377,30 +370,21 @@ public:
                 }
             }
             buf[index] = 0;
-            if(sscanf(buf, "%lg", &content) != 1)
-                return false;
-            return true;
-        } else if constexpr(std::same_as<std::int64_t, Src>) {
-            char buf[26];
-            std::size_t index = 0;
-            while(begin != end && *begin != ','&& *begin != ']'&& *begin != '}') {
-                buf[index] = *begin;
-                begin ++;
-                index ++;
-                if(index > sizeof (buf) - 1) {
-                    return false;
-                }
+            double x;
+            if(fast_double_parser::parse_number(buf, &x) != nullptr) {
+                content = x;
+                return true;
             }
-            buf[index] = 0;
-            if(sscanf(buf, "%lld", &content) != 1)
-                return false;
-            return true;
+            return false;
+        } else {
+            return false;
         }
     }
 };
 
 template <JSONArrayValue Src, JSONFieldNameStringLiteral Str>
 class JS<Src, Str> : public Src{
+    using ItemType = typename Src::value_type;
 public:
     static constexpr auto FieldName = Str;
 
@@ -429,7 +413,59 @@ public:
 
     template<class InpIter> requires std::forward_iterator<InpIter>
     bool DeserialiseInternal(InpIter & begin, const InpIter & end) {
-       return false;
+        if(!skipWhiteSpaceTill(begin, end, '[')) return false;
+        if constexpr (DynamicContainerTypeConcept<Src>) {
+            static_cast<Src&>(*this).clear();
+            while(begin != end) {
+                if(!skipWhiteSpace(begin, end))
+                    return false;
+                if(*begin == ']') {
+                    begin ++;
+                    return true;
+                }
+
+                ItemType newItem;
+
+                bool ok = newItem.DeserialiseInternal(begin, end);
+                if(!ok)
+                    return false;
+                static_cast<Src&>(*this).push_back(newItem);
+
+                if(!skipWhiteSpace(begin, end))
+                    return false;
+                if(*begin == ',') {
+                    begin ++;
+                }
+            }
+        } else {
+            int counter = 0;
+
+            while(begin != end) {
+                if(!skipWhiteSpace(begin, end))
+                    return false;
+                if(*begin == ']') {
+                    begin ++;
+                    return true;
+                }
+                if(counter > static_cast<const Src&>(*this).size()) {
+                    return false;
+                }
+                ItemType & newItem = static_cast<Src&>(*this)[counter];
+
+                bool ok = newItem.DeserialiseInternal(begin, end);
+                if(!ok)
+                    return false;
+                counter ++;
+
+                if(!skipWhiteSpace(begin, end))
+                    return false;
+                if(*begin == ',') {
+                    begin ++;
+                }
+            }
+        }
+
+        return false;
     }
 };
 
@@ -615,14 +651,19 @@ public:
         return false;
     }
     template<class InpIter> requires std::forward_iterator<InpIter>
-    bool Deserialise(InpIter begin, const InpIter & end) {
+    bool Deserialize(InpIter begin, const InpIter & end) {
         return DeserialiseInternal(begin, end);
+    }
+
+    template<class ContainterT> requires std::ranges::range<ContainterT>
+    bool Deserialize(const ContainterT & c) {
+        auto b = c.begin();
+        return DeserialiseInternal(b, c.end());
     }
 
     template<class InpIter> requires std::forward_iterator<InpIter>
     bool DeserialiseInternal(InpIter & begin, const InpIter & end) {
         if(!skipWhiteSpaceTill(begin, end, '{')) return false;
-
         while(begin != end) {
             if(!skipWhiteSpace(begin, end))
                 return false;
@@ -645,7 +686,6 @@ public:
             if(!skipWhiteSpaceTill(begin, end, ':'))
                 return false;
 
-            auto prevB = begin;
             bool ok = DeserialiseField(keyBegin, keyEnd, begin, end);
             if(!ok)
                 return false;
@@ -668,6 +708,6 @@ public:
 
 };
 
-//class Deserializer
+
 }
 #endif // CPP_JSON_REFLECTION_HPP
