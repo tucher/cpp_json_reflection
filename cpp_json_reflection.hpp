@@ -320,7 +320,7 @@ public:
             char fc = *begin;
             begin++;
             if(fc == 't') {
-                char v[] = "rue";
+                constexpr char v[] = "rue";
                 for(int i = 0; i < 3; i ++) {
                     if(begin == end) {
                         return false;
@@ -335,7 +335,7 @@ public:
                 return true;
             }
             else if(fc == 'f') {
-                char v[] = "alse";
+                constexpr char v[] = "alse";
                 for(int i = 0; i < 4; i ++) {
                     if(begin == end) {
                         return false;

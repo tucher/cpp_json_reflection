@@ -56,7 +56,7 @@ For example, there is GeoJSON data, [canada.json](https://github.com/boostorg/js
     }
 
 So:
-- JSON object is C++ struct. Fields order doesn't matter for successful parsing, excess JSON data is skipped.
+- JSON object are plain C++ structs. Fields order doesn't matter for successful parsing, excess JSON data is silently skipped.
 - JSON array is stl-compatible container, including fixed-sized, like ```Point = std::array<T, 2>```, which models  geo coordinates in our example. Heterogenous JSON arrays are not supported.
 - JSON plain value is ```bool```, ```double```, ```std::int64_t``` or string-like. String-like means stl-compatible [contigeous container](https://en.cppreference.com/w/cpp/named_req/ContiguousContainer) with ```char```s, including fixed-sized, like ```std::array<char, 20>```. 
 - JSON ```null``` value doesn't make much sense if we are in strongly-typed world, and is not supported.
