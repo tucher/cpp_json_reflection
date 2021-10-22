@@ -83,24 +83,23 @@ concept JSONArrayValue = std::ranges::range<T> && !JSONBasicValue<T> && JSONWrap
 template<typename T>
 concept JSONObjectValue = std::is_class_v<T> && !JSONArrayValue<T> && !JSONBasicValue<T>;
 
-
-
-template <class Src, JSONFieldNameStringLiteral Str = "">
-requires JSONBasicValue<Src> || JSONArrayValue<Src> || JSONObjectValue<Src>
-class JS {
-};
-
-
 template<typename InpIter>
 concept InputIteratorConcept =  std::forward_iterator<InpIter> && requires(InpIter inp) {
     {*inp} -> std::convertible_to<char>;
 };
 
 
+template <class Src, JSONFieldNameStringLiteral Str = "">
+requires JSONBasicValue<Src> || JSONArrayValue<Src> || JSONObjectValue<Src>
+class J {
+};
 
-
-bool isSpace(char a) {
+inline bool isSpace(char a) {
     return a == 0x20 || a == 0x0A || a == 0x0D || a == 0x09;
+}
+
+inline bool isPlainEnd(char a) {
+    return isSpace(a) || a == ']' || a == ',' || a == '}';
 }
 bool skipWhiteSpace(InputIteratorConcept auto & begin, const InputIteratorConcept auto & end) {
     while(isSpace(*begin) && begin != end)
@@ -231,7 +230,7 @@ InpIter findJsonKeyStringEnd(InpIter begin, const InpIter & end) {
 
 
 template <JSONBasicValue Src, JSONFieldNameStringLiteral Str>
-class JS<Src, Str> {
+class J<Src, Str> {
 
     Src content;
 public:
@@ -241,10 +240,10 @@ public:
     operator Src&() {
         return content;
     }
-    constexpr JS(): content(Src())  {
+    constexpr J(): content(Src())  {
 
     }
-    JS(const Src & val):content(val)  {
+    J(const Src & val):content(val)  {
 
     }
 
@@ -314,6 +313,7 @@ public:
                     }
                     begin ++;
                 }
+                if(!isPlainEnd(*begin)) return false;
                 content = true;
                 return true;
             }
@@ -328,6 +328,7 @@ public:
                     }
                     begin ++;
                 }
+                if(!isPlainEnd(*begin)) return false;
                 content = false;
                 return true;
             } else
@@ -369,9 +370,9 @@ public:
 
             return true;
         } else if constexpr(std::same_as<double, Src> || std::same_as<std::int64_t, Src>) {
-            char buf[26];
+            char buf[40];
             std::size_t index = 0;
-            while(begin != end && *begin != ','&& *begin != ']'&& *begin != '}') {
+            while(!isPlainEnd(*begin) &&begin != end ) {
                 buf[index] = *begin;
                 begin ++;
                 index ++;
@@ -393,9 +394,11 @@ public:
 };
 
 template <JSONArrayValue Src, JSONFieldNameStringLiteral Str>
-class JS<Src, Str> : public Src{
-    using ItemType = typename Src::value_type;
+class J<Src, Str> : public Src{
+
 public:
+    using ItemType = typename Src::value_type;
+
     static constexpr auto FieldName = Str;
 
     using JSONValueKind = JSONValueKindEnumArray;
@@ -427,8 +430,9 @@ public:
         if constexpr (DynamicContainerTypeConcept<Src>) {
             static_cast<Src&>(*this).clear();
             while(begin != end) {
-                if(!skipWhiteSpace(begin, end))
+                if(!skipWhiteSpace(begin, end)) {
                     return false;
+                }
                 if(*begin == ']') {
                     begin ++;
                     return true;
@@ -437,12 +441,14 @@ public:
                 ItemType newItem;
 
                 bool ok = newItem.DeserialiseInternal(begin, end);
-                if(!ok)
+                if(!ok) {
                     return false;
+                }
                 static_cast<Src&>(*this).push_back(newItem);
 
-                if(!skipWhiteSpace(begin, end))
+                if(!skipWhiteSpace(begin, end)) {
                     return false;
+                }
                 if(*begin == ',') {
                     begin ++;
                 }
@@ -451,8 +457,9 @@ public:
             int counter = 0;
 
             while(begin != end) {
-                if(!skipWhiteSpace(begin, end))
+                if(!skipWhiteSpace(begin, end)) {
                     return false;
+                }
                 if(*begin == ']') {
                     begin ++;
                     return true;
@@ -463,12 +470,14 @@ public:
                 ItemType & newItem = static_cast<Src&>(*this)[counter];
 
                 bool ok = newItem.DeserialiseInternal(begin, end);
-                if(!ok)
+                if(!ok) {
                     return false;
+                }
                 counter ++;
 
-                if(!skipWhiteSpace(begin, end))
+                if(!skipWhiteSpace(begin, end)) {
                     return false;
+                }
                 if(*begin == ',') {
                     begin ++;
                 }
@@ -483,7 +492,7 @@ template <std::size_t Index, class PotentialJsonFieldT> struct KeyIndexEntry {
     static constexpr bool skip = true;
 };
 template <std::size_t Index, class InnerFieldType, JSONFieldNameStringLiteral KeyString>
-struct KeyIndexEntry<Index, JS<InnerFieldType, KeyString>>{
+struct KeyIndexEntry<Index, J<InnerFieldType, KeyString>>{
     static constexpr bool skip = false;
     static constexpr auto FieldName =  KeyString;
     static constexpr std::size_t OriginalIndex = Index;
@@ -571,7 +580,7 @@ binary_search(I first, S last, const T& value, Comp comp = {}, Proj proj = {})
 }
 
 template <JSONObjectValue Src, JSONFieldNameStringLiteral Str>
-class JS<Src, Str> : public Src {
+class J<Src, Str> : public Src {
 public:
     using JSONValueKind = JSONValueKindEnumObject;
     static constexpr auto FieldName = Str;
