@@ -54,7 +54,7 @@ For example, there is GeoJSON data, [canada.json](https://github.com/boostorg/js
             //all done!
         }
 
-        root.Serialize([&counter](const char * d, std::size_t size){
+        root.Serialize([](const char * d, std::size_t size){
             //data is feeded there;
             return true;
         });
