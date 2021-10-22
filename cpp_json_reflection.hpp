@@ -11,6 +11,9 @@
 #include <swl/variant.hpp>
 #include <algorithm>
 #include <fast_double_parser.h>
+
+#include "string_ops.hpp"
+
 namespace simdjson {
 namespace internal {
 char *to_chars(char *first, const char *last, double value);
@@ -67,10 +70,8 @@ concept DynamicContainerTypeConcept = requires (T && v) {
 
 template <typename T>
 concept ReserveCapable = DynamicContainerTypeConcept<T> && requires (T && v) {
-
-        v.reserve(10);
+    v.reserve(10);
 };
-
 
 template <typename T>
 concept DynamicStringTypeConcept = StringTypeConcept<T> && DynamicContainerTypeConcept<T>;
@@ -86,7 +87,6 @@ concept SerializerOutputBufferConcept = requires (T && buf) {
     { buf.data } -> std::same_as<char *>;
 };
 
-
 template<typename T>
 concept JSONBasicValue = std::same_as<T, bool> || std::same_as<T, double>|| std::convertible_to<T, std::int64_t> || StringTypeConcept<T>;
 
@@ -95,11 +95,6 @@ concept JSONArrayValue = std::ranges::range<T> && !JSONBasicValue<T> && JSONWrap
 
 template<typename T>
 concept JSONObjectValue = std::is_class_v<T> && !std::ranges::range<T> && !JSONArrayValue<T> && !JSONBasicValue<T>;
-
-template<typename InpIter>
-concept InputIteratorConcept =  std::forward_iterator<InpIter> && requires(InpIter inp) {
-    {*inp} -> std::convertible_to<char>;
-};
 
 template<typename T>
 concept JSONWrapable = JSONBasicValue<T> || JSONArrayValue<T> || JSONObjectValue<T>;
@@ -110,140 +105,6 @@ class J {
     static_assert(always_false<Src>, "JSONReflection: Cannot represent type in terms of JSON. See next compiler messages for details");
     static_assert (JSONWrapable<Src>);
 };
-
-inline bool isSpace(char a) {
-    return a == 0x20 || a == 0x0A || a == 0x0D || a == 0x09;
-}
-
-inline bool isPlainEnd(char a) {
-    return isSpace(a) || a == ']' || a == ',' || a == '}';
-}
-bool skipWhiteSpace(InputIteratorConcept auto & begin, const InputIteratorConcept auto & end) {
-    while(isSpace(*begin) && begin != end)
-        begin ++;
-    if (begin == end) return false;
-    return true;
-}
-
-bool skipTillPlainEnd(InputIteratorConcept auto & begin, const InputIteratorConcept auto & end) {
-    while(!isSpace(*begin)
-          && *begin != ','
-          && *begin != '}'
-          && *begin != ']' && begin != end)
-        begin ++;
-    if (begin == end) return false;
-    return true;
-}
-
-bool skipJsonValue(InputIteratorConcept auto & begin, const InputIteratorConcept auto & end) {
-    if(!skipWhiteSpace(begin, end)) return false;
-    int level = 0;
-    enum class Where {
-        IN_OBJ,
-        IN_ARRAY,
-        IN_PLAIN
-    };
-    Where wh;
-    if(*begin != '[' && *begin != '{') {
-        return skipTillPlainEnd(begin, end);
-    }
-
-    do {
-        switch(*begin) {
-        case '[':
-            wh = Where::IN_ARRAY;
-            level ++;
-            break;
-        case '{':
-            wh = Where::IN_OBJ;
-            level ++;
-            break;
-        case '}':
-//            if(wh != Where::IN_OBJ) return false;
-            level --;
-            break;
-        case ']':
-            level --;
-            break;
-        }
-
-       begin ++;
-
-    } while(level != 0 && begin != end);
-
-    if(begin == end)
-        return false;
-
-    return true;
-}
-
-
-
-bool skipTill(InputIteratorConcept auto & begin, const InputIteratorConcept auto & end, char s) {
-    while( *begin != s && begin != end)
-        begin ++;
-    if (begin == end) return false;
-    return true;
-}
-
-bool skipWhiteSpaceTill(InputIteratorConcept auto & begin, const InputIteratorConcept auto & end, char s) {
-    if(!skipWhiteSpace(begin, end)) return false;
-    if(*begin == s) {
-        begin ++;
-        if (begin == end) return false;
-        return true;
-    }
-    return false;
-}
-
-template<class InpIter> requires InputIteratorConcept<InpIter>
-InpIter findJsonKeyStringEnd(InpIter begin, const InpIter & end) {
-    for(; begin != end; begin ++) {
-        char c = reinterpret_cast<char>(*begin);
-        if(c == '"') {
-            return begin;
-        } else if (c == '\\' && std::next(begin) != end) {
-            int i;
-            begin++;
-            switch (*begin) {
-                /* Allowed escaped symbols */
-                case '\"':
-                case '/':
-                case '\\':
-                case 'b':
-                case 'f':
-                case 'r':
-                case 'n':
-                case 't':
-                    break;
-            /* Allows escaped symbol \uXXXX */
-                case 'u': {
-                    begin++;
-                    auto beforeEscapedSymbol = begin;
-                    for (int i = 0; i < 4 && begin != end ; i++) {
-                        /* If it isn't a hex character we have an error */
-                        auto currChar = *begin;
-                        if (!((currChar >= 48 && currChar <= 57) ||     /* 0-9 */
-                              (currChar >= 65 && currChar <= 70) ||     /* A-F */
-                              (currChar >= 97 && currChar <= 102)  )) { /* a-f */
-                            return end;
-                        }
-                        beforeEscapedSymbol = begin;
-                        begin++;
-                    }
-                    begin = beforeEscapedSymbol;
-                    }
-                    break;
-            /* Unexpected symbol */
-                default:
-                    return end;
-            }
-        }
-    }
-
-    return end;
-}
-
 
 
 template <JSONBasicValue Src, JSONFieldNameStringLiteral Str>
@@ -319,10 +180,14 @@ public:
                 return clb(v, 1);
             } else {
                 char buf[50];
-
                 char * endChar = simdjson::internal::to_chars(buf, buf + sizeof (buf), content);
-                if(endChar-buf == sizeof (buf)) return false;
-                else return clb(buf, endChar-buf);
+                auto s = endChar-buf;
+                if(endChar-buf == sizeof (buf)) {
+                    return false;
+                }
+                else {
+                    return clb(buf, s);
+                }
             }
         } else
             return true;
@@ -402,27 +267,52 @@ public:
             }
 
             return true;
+//        } else if constexpr(std::same_as<double, Src> || std::same_as<std::int64_t, Src>) {
+//            InpIter bg = begin;
+//            while(!isPlainEnd(*begin) &&begin != end ) {
+//                begin ++;
+//                if(begin - bg > 50) {
+//                    return false;
+//                }
+//            }
+//            if(begin == end) return false;
+//            char rst = *begin;
+//            *begin = 0;
+//            double x;
+//            if(fast_double_parser::parse_number(& *bg, &x) != nullptr) {
+//                content = x;
+//                *begin = rst;
+//                return true;
+//            }
+//            *begin = rst;
+//            return false;
+//        } else {
+//            return false;
+//        }
         } else if constexpr(std::same_as<double, Src> || std::same_as<std::int64_t, Src>) {
-            char buf[40];
-            std::size_t index = 0;
-            while(!isPlainEnd(*begin) &&begin != end ) {
-                buf[index] = *begin;
-                begin ++;
-                index ++;
-                if(index > sizeof (buf) - 1) {
-                    return false;
-                }
-            }
-            buf[index] = 0;
-            double x;
-            if(fast_double_parser::parse_number(buf, &x) != nullptr) {
-                content = x;
-                return true;
-            }
-            return false;
-        } else {
-            return false;
-        }
+             char buf[40];
+             std::size_t index = 0;
+             while(!isPlainEnd(*begin)) {
+                 if(begin == end ) [[unlikely]] {
+                     break;
+                 }
+                 buf[index] = *begin;
+                 begin ++;
+                 index ++;
+                 if(index > sizeof (buf) - 1) [[unlikely]] {
+                     return false;
+                 }
+             }
+             buf[index] = 0;
+             double x;
+             if(fast_double_parser::parse_number(buf, &x) != nullptr) {
+                 content = x;
+                 return true;
+             }
+             return false;
+         } else {
+             return false;
+         }
     }
 };
 
@@ -564,8 +454,6 @@ struct KeyIndexBuilder<std::tuple<FieldTypes...>, std::index_sequence<Is...>>  {
                 j++;
             }
         }
-
-
         std::ranges::sort(ret, std::ranges::less{}, ProjKeyIndexVariantToStringView{});
         return ret;
     }

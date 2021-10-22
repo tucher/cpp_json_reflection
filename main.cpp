@@ -126,7 +126,7 @@ int main()
 
 //    }
 
-    doPerformanceTest("Perf Test For t3.Serialize", 1000000, [&testInit, &counter]{
+    doPerformanceTest("Perf Test For t3.Serialize", 2000000, [&testInit, &counter]{
         counter = 0;
         testInit.Serialize([&counter](const char * d, std::size_t size){
             counter += size;

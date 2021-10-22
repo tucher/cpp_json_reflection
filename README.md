@@ -115,7 +115,7 @@ Object may contain garbage half-parsed data if deserialization fails, so use som
 
     Key strings are ```static constexpr``` and stored inside ```J<T, "key">``` type
 
-- What about speed, on my MacbookPro 2014 laptop it is about 300 megabytes/s for canada.json. There is a comparison chart [here](http://vinniefalco.github.io/doc/json/json/benchmarks.html#json.benchmarks.parse_numbers_json), so we are faster then **nlohman**, and relatively the same as **rapidjson**.
+- What about speed, on my MacbookPro 2014 laptop it is about 500 megabytes/s for canada.json parsing and 200 for serializing when compiled with GCC 11. There is a comparison chart [here](http://vinniefalco.github.io/doc/json/json/benchmarks.html#json.benchmarks.parse_numbers_json), so we are somewhere near the middle-top.
 
 - And let's don't talk about binary size and compilation time:) More tests needed, but for relatively small models it looks "ok".
 
@@ -143,6 +143,7 @@ Object may contain garbage half-parsed data if deserialization fails, so use som
 - High-performance string to double convertion library, [fast_double_parser](https://github.com/lemire/fast_double_parser)
 
 ## TODO
+- Cleanup code, move most members to private
 - Work on complete transparency of ```J```-wrapped objects
 - Compile-time options for max size if dynamic objects, preallocated containers size, etc..
 - Complete test suit, including fuzzing

@@ -28,7 +28,7 @@ struct Feature {
 };
 
 struct Root_ {
-    J<string,           "type">      type;
+    J<string,             "type">      type;
     J<vector<J<Feature>>, "features" > features;
 
 };
@@ -99,8 +99,7 @@ int canadaJsonPerfTest() {
     std::string inp = inpconst;
 
     std::ifstream ifs("../cpp_json_reflection/canada.json");
-     inp = std::string ( (std::istreambuf_iterator<char>(ifs) ),
-                           (std::istreambuf_iterator<char>()    ) );
+     inp = std::string(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
 
     std::cout << "inp.size " << inp.size() << std::endl;
     char * b = &inp.data()[0];
@@ -111,11 +110,11 @@ int canadaJsonPerfTest() {
     res = root.Deserialize(b, e);
     if(!res) throw 1;
 
-    while(true) {
-        bool res1 = root.Deserialize(b, e);
-        if(!res1) throw 1;
+//    while(true) {
+//        bool res1 = root.Deserialize(b, e);
+//        if(!res1) throw 1;
 
-    }
+//    }
 
 //    {
 //        std::size_t counter = 0;
@@ -171,6 +170,9 @@ int canadaJsonPerfTest() {
     });
     auto & feat = root.features.front();
 
+    root.features[0].geometry.type = "I am deeply nested";
+    string s("wefwef");
+    s += root.features[0].geometry.type;
     return 0;
 
 }
