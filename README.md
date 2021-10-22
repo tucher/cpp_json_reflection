@@ -10,14 +10,18 @@ For example, there is GeoJSON data, [canada.json](https://github.com/boostorg/js
     #include <vector>
     #include <array>
     #include <string>
+    #include "fstream"
 
     using std::vector, std::array, std::string
 
     using JSONReflection::J;
 
     using Point = array<J<double>, 2>;
+    
     using PolygonRing = vector<J<Point>>;
+    
     using PolygonCoordinates = vector<J<PolygonRing>>;
+    
     struct Geometry {
         J<string,             "type">        type;
         J<PolygonCoordinates, "coordinates"> coordinates;
@@ -41,9 +45,10 @@ For example, there is GeoJSON data, [canada.json](https://github.com/boostorg/js
     using Root = J<Root_>;
 
     int main() {
+        std::ifstream ifs("canada.json");
+        string data(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
+        
         Root root;
-
-        string data = ".......";
 
         if(root.Deserialize(data)) {
             //all done!
@@ -63,7 +68,7 @@ So:
 
 The only difference between usual structures and JSON-ready is that you need to wrap all JSON-related objects into ```J<>``` template. If field inside structure models JSON object key-value pair, add key string literal after field's type.
 
-With such ```J``` wrapper, objects are usable in the usual way:
+With such ```J``` wrapper, objects are *(almost)* usable in usual way:
 
     Root root;
     root.features[0].geometry.type = "I am deeply nested";
@@ -137,3 +142,7 @@ Object may contain garbage half-parsed data if deserialization fails, so use som
 - High-performance double to string convertion code from [simdjson](https://github.com/simdjson/simdjson/blob/master/src/to_chars.cpp)
 - High-performance string to double convertion library, [fast_double_parser](https://github.com/lemire/fast_double_parser)
 
+## TODO
+- Work on complete transparency of ```J```-wrapped objects
+- Compile-time options for max size if dynamic objects, preallocated containers size, etc..
+- Complete test suit, including fuzzing

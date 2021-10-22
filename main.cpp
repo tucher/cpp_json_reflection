@@ -15,6 +15,7 @@ using std::vector, std::list, std::array, std::string, std::int64_t;
 struct InnerStruct {
     J<string, "name">  name;
     J<double, "value"> value;
+    auto operator<=>(const InnerStruct&) const = default;
 };
 
 struct InnerStruct2 {
@@ -23,10 +24,13 @@ struct InnerStruct2 {
     J<double,          "p3">           p3;
     J<bool,            "p4">           p4;
     J<InnerStruct,     "inner_struct"> inner_struct;
+
+    auto operator<=>(const InnerStruct2&) const = default;
 };
 
 struct InnerStruct3 {
     J<InnerStruct2, "3level_nesting"> _3level_nesting;
+    auto operator<=>(const InnerStruct3&) const = default;
 };
 
 struct RootObject_ {
@@ -38,6 +42,8 @@ struct RootObject_ {
     J<vector<char>,            "string_like">  string_like;
     J<vector<J<bool>>,        "primitive_array">  primitive_array;
     J<array<J<int64_t>, 5>,   "ints_array">  ints_array;
+
+    auto operator<=>(const RootObject_&) const = default;
 };
 
 using RootObject = J<RootObject_>;
@@ -174,10 +180,52 @@ int main()
         return true;
     });
 
-    RootObject a1;
-    RootObject_ a2;
-    a2 = a1;
-    a1 = a2;
+//    RootObject a1;
+//    RootObject_ a2;
+//    a2 = a1;
+//    a1 = a2;
+//    bool vmp = (a1 == a1);
+//    bool vmp2 = (a1 == a2);
+
+
+    J<int64_t> Jplain1;
+    Jplain1 ++;
+
+    auto opsChecker = []<class T>(T plain1) {
+        J<T> Jplain1;
+        bool b;
+        Jplain1 = plain1;
+        plain1 = Jplain1;
+        Jplain1 = Jplain1;
+
+        b = plain1 > Jplain1;
+        b = Jplain1 > plain1;
+        b = Jplain1 > Jplain1;
+
+        b = plain1 < Jplain1;
+        b = Jplain1 < plain1;
+        b = Jplain1 < Jplain1;
+
+        b = plain1 <= Jplain1;
+        b = Jplain1 <= plain1;
+        b = Jplain1 <= Jplain1;
+
+        b = plain1 >= Jplain1;
+        b = Jplain1 >= plain1;
+        b = Jplain1 >= Jplain1;
+
+        b = plain1 == Jplain1;
+        b = Jplain1 == plain1;
+        b = Jplain1 == Jplain1;
+
+        b = plain1 != Jplain1;
+        b = Jplain1 != plain1;
+        b = Jplain1 != Jplain1;
+    };
+
+    opsChecker(int64_t{});
+
+    opsChecker(RootObject_{});
 
     return 0;
 }

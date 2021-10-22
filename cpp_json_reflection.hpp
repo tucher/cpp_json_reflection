@@ -257,6 +257,9 @@ public:
     operator Src&() {
         return content;
     }
+    operator const Src&() const {
+        return content;
+    }
     constexpr J(): content(Src())  {
 
     }
@@ -266,6 +269,19 @@ public:
 
     Src & operator=(const Src & other) {
         return content = other;
+    }
+    auto operator<=>(const J&) const = default;
+    auto operator<=>(const Src& rhs) const {
+        return content <=> rhs;
+    }
+//    auto operator==(const J& rhs) const {
+//        return content == rhs.content;
+//    }
+    auto operator==(const Src& rhs) const {
+        return content == rhs;
+    }
+    auto operator!=(const Src& rhs) const {
+        return content != rhs;
     }
 
     bool Serialize(SerializerOutputCallbackConcept auto && clb) const {
