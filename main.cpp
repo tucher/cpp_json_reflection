@@ -47,6 +47,7 @@ using RootObject = J<RootObject_>;
 int canadaJsonPerfTest();
 int main()
 {
+
     return canadaJsonPerfTest();
     constexpr char inp3const[]{R"(
         {
@@ -172,6 +173,11 @@ int main()
         std::cout << std::string(d, size);
         return true;
     });
+
+    RootObject a1;
+    RootObject_ a2;
+    a2 = a1;
+    a1 = a2;
 
     return 0;
 }

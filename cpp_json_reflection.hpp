@@ -731,6 +731,14 @@ public:
         return false;
     }
 
+    operator Src&() {
+        return static_cast<Src &>(*this);
+    }
+
+    Src& operator = (const Src& other) {
+        return static_cast<Src &>(*this) = other;
+    }
+
     //TODO remove later
     using testTupleT = typename KeyIndexBuilderT::testTupleT;
     using testTupleT2 = typename KeyIndexBuilderT::testTupleT2;

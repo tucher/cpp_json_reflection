@@ -1,97 +1,139 @@
 # Another JSON library
 ## Main feature
-Maps structures to/from JSON without macros and code generation
+High-performance mapping between native first-class C++ objects and JSON without macros and code generation.
+
 ## Usage
+All you need is to define C++ structures to model data. 
+For example, there is GeoJSON data, [canada.json](https://github.com/boostorg/json/blob/develop/bench/data/canada.json):
 
-### Defining structures
+    #include <cpp_json_reflection.hpp>
+    #include <vector>
+    #include <array>
+    #include <string>
 
-- Need to wrap all fields into JS<> template
+    using std::vector, std::array, std::string
 
-        struct InnerStruct {
-            JS<std::string, "label">  label;
-            JS<double,      "value">  value;
-        };
+    using JSONReflection::J;
 
-        struct InnerStruct2 {
-            JS<std::string, "p1">           p1;
-            JS<double,      "p2">           p2;
-            JS<double,      "p3">           p5;
-            JS<bool,        "p4">           p3;
-            JS<InnerStruct, "inner_struct"> p6;
-        };
+    using Point = array<J<double>, 2>;
+    using PolygonRing = vector<J<Point>>;
+    using PolygonCoordinates = vector<J<PolygonRing>>;
+    struct Geometry {
+        J<string,             "type">        type;
+        J<PolygonCoordinates, "coordinates"> coordinates;
+    };
 
-        struct InnerStruct3 {
-            JS<InnerStruct2, "nested"> value;
-        };
+    struct Properties {
+        J<string, "name"> name;
+    };
 
-        struct RootObject_ {
-            JS<InnerStruct3,            "obj">          obj;
-            JS<std::int64_t,            "a">            a;
-            std::string                                 UNAVAILABLE_FOR_JSON;
-            JS<list<JS<InnerStruct>>,   "values_array"> values;
-            JS<InnerStruct2,            "params">       params;
-        };
+    struct Feature {
+        J<string,     "type">       type;
+        J<Properties, "properties"> properties;
+        J<Geometry,   "geometry">   geometry;
+    };
 
-        using RootObject = JS<RootObject_>;
+    struct Root_ {
+        J<string,             "type">      type;
+        J<vector<J<Feature>>, "features" > features;
+    };
 
-- Structs are usable in the usual way:
+    using Root = J<Root_>;
 
-        RootObject root;
-        root.obj.value.p6.name = "I am deeply nested";
+    int main() {
+        Root root;
 
-        void f1(InnerStruct2 & s) {
-            s.p3 = true;
+        string data = ".......";
+
+        if(root.Deserialize(data)) {
+            //all done!
         }
-        f1(root.obj.value)
 
-- To use JSON array, use this technique:
+        root.Serialize([&counter](const char * d, std::size_t size){
+            //data is feeded there;
+            return true;
+        });
+    }
 
-        using ArrayFieldT = JS<ContainerT<T>>;
-    Where T is type already wrapped into JS<> and ContainerT is std::list, std::vector, std::array or something compatible.
+So:
+- JSON object is C++ struct. Fields order doesn't matter for successful parsing, excess JSON data is skipped.
+- JSON array is stl-compatible container, including fixed-sized, like ```Point = std::array<T, 2>```, which models  geo coordinates in our example. Heterogenous JSON arrays are not supported.
+- JSON plain value is ```bool```, ```double```, ```std::int64_t``` or string-like. String-like means stl-compatible [contigeous container](https://en.cppreference.com/w/cpp/named_req/ContiguousContainer) with ```char```s, including fixed-sized, like ```std::array<char, 20>```. 
+- JSON ```null``` value doesn't make much sense if we are in strongly-typed world, and is not supported.
 
-- Initialisation:
+The only difference between usual structures and JSON-ready is that you need to wrap all JSON-related objects into ```J<>``` template. If field inside structure models JSON object key-value pair, add key string literal after field's type.
 
-        RootObject testInit{{
-            .a {123456},
-            .values {{
-                       {{.name = {"Fuu"}, .value = {-273} }},
-                       {{.name = {"Fuuu"}, .value = {-274} }}
-            }}
-        }};
-    Addititinal {} pair is needed.
+With such ```J``` wrapper, objects are usable in the usual way:
 
-- Default values could be given in object type declaration:
-
-        struct Object {
-            JS<bool, "flag_1"> f1 = true;
-            JS<bool, "flag_2"> f2 = false;
-        };
-
-### Serialisation:
+    Root root;
+    root.features[0].geometry.type = "I am deeply nested";
     
-    root.Serialize([](const char * d, std::size_t size){
-        std::cout << std::string(d, size);
-        return true;
-    });
+    Geometry geom;
+    root.features[0].geometry = geom;
 
-### Deserialisation:
-
-    bool res = root.Deserialize(IteratorBegin, IteratorEnd);
 or
 
-    bool res = root.Deserialize(ContainerWithChars);
+    void ffuu(Properties & s) {
+        s.name = "ffuu";
+    }
+    f1(root.features[1].properties);
 
-Object may contain garbage data if failed, so use something like this to restore previous values:
+or 
 
+    Root initialisedRoot {{
+        .type{"some type"},
+        .features {{
+            {{
+                .type{"f1"}
+            }},
+            {{
+                .type{"f1"}
+            }}
+        }}
+    }}
+
+Object may contain garbage half-parsed data if deserialization fails, so use something like this to restore previous values:
     
-    if(auto temp = obj; !obj.Deserialize(ContainerWithChars)) {
+    if(auto temp = obj; !obj.Deserialize(DataContainer)) {
         obj = temp
     } else {
         //success;
     }
 
-### Performance
+## Performance
+
+- No dymamic memory used by the library itself, so it is possible to use it in completely heap-free environment. Until all strings and arrays are modelled with fixed-sized containers, of course.
+
 - No memory overhead:
 
-        static_assert (sizeof(JS<RootObject_>) == sizeof (RootObject_) );
-    Key strings are ```static constexpr``` and stored inside ```JS<T, "key">``` type
+        static_assert (sizeof(J<Root_>) == sizeof (Root_));
+
+    Key strings are ```static constexpr``` and stored inside ```J<T, "key">``` type
+
+- What about speed, on my MacbookPro 2014 laptop it is about 300 megabytes/s for canada.json. There is a comparison chart [here](http://vinniefalco.github.io/doc/json/json/benchmarks.html#json.benchmarks.parse_numbers_json), so we are faster then **nlohman**, and relatively the same as **rapidjson**.
+
+- And let's don't talk about binary size and compilation time:) More tests needed, but for relatively small models it looks "ok".
+
+## Options, features
+
+- ```J```-wrapped JSON-ready types could be declared in shorter form, if needed. It could be useful for nested arrays:
+
+        J<list<
+            J<list<
+                ....
+                J<array<
+                    J<double>,
+                2>>
+                ...
+            >>
+        >> deeplyNestedArrays;
+
+
+## Dependencies
+
+- C++ 20 is mandatory, I've developed and tested the library with GCC11
+- Amazing [PFR](https://github.com/boostorg/pfr) library, which inspired me and get us all closer to C++ introspection 
+- Better replacement for ```std::variant```, [swl variant](https://github.com/groundswellaudio/swl-variant)
+- High-performance double to string convertion code from [simdjson](https://github.com/simdjson/simdjson/blob/master/src/to_chars.cpp)
+- High-performance string to double convertion library, [fast_double_parser](https://github.com/lemire/fast_double_parser)
+

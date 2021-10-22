@@ -35,21 +35,26 @@ struct Root_ {
 using Root = J<Root_>;
 
 
-//J<list<
-//    J<list<
-//        J<array<
-//            J<double>,
-//        2>>
-//    >>
-//>, "coordinates"> coordinates;
-//using T = decltype(coordinates);
+J<list<
+    J<list<
+        J<array<
+            J<double>,
+        2>>
+    >>
+>, "coordinates"> coordinates;
+using T = decltype(coordinates);
 
-//static_assert (JSONReflection::JSONWrappedValue<T>);
-//static_assert (std::is_same_v<JSONReflection::JSONValueKindEnumArray, T::JSONValueKind>);
-//static_assert (JSONReflection::JSONWrappedValue<T::ItemType>);
-//static_assert (JSONReflection::JSONWrappedValue<T::ItemType::ItemType>);
-//static_assert (JSONReflection::JSONWrappedValue<T::ItemType::ItemType::ItemType>);
-//static_assert (std::is_same_v<JSONReflection::JSONValueKindEnumPlain, T::ItemType::ItemType::ItemType::JSONValueKind>);
+static_assert (JSONReflection::JSONWrappedValue<T>);
+static_assert (std::is_same_v<JSONReflection::JSONValueKindEnumArray, T::JSONValueKind>);
+static_assert (JSONReflection::JSONWrappedValue<T::ItemType>);
+static_assert (JSONReflection::JSONWrappedValue<T::ItemType::ItemType>);
+static_assert (JSONReflection::JSONWrappedValue<T::ItemType::ItemType::ItemType>);
+static_assert (std::is_same_v<JSONReflection::JSONValueKindEnumPlain, T::ItemType::ItemType::ItemType::JSONValueKind>);
+
+//static_assert (std::is_trivially_assignable_v<Root, Root_>);
+//static_assert (std::is_assignable_v<Root, Root_>);
+
+//static_assert (std::is_trivially_assignable_v<Root_, Root>);
 
 
 int canadaJsonPerfTest() {
@@ -106,11 +111,11 @@ int canadaJsonPerfTest() {
     res = root.Deserialize(b, e);
     if(!res) throw 1;
 
-//        while(true) {
-//            bool res1 = root.Deserialize(b, e);
-//            if(!res1) throw 1;
+    while(true) {
+        bool res1 = root.Deserialize(b, e);
+        if(!res1) throw 1;
 
-//        }
+    }
 
 //    {
 //        std::size_t counter = 0;
