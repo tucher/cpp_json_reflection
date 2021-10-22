@@ -3,13 +3,15 @@
 #include "test_utils.hpp"
 
 #include "fstream"
+#include <string.h>
+
 using JSONReflection::J;
 using std::vector, std::list, std::array, std::string, std::int64_t;
 
 
 using Point = array<J<double>, 2>;
-using PolygonRing = list<J<Point>>;
-using PolygonCoordinates = list<J<PolygonRing>>;
+using PolygonRing = vector<J<Point>>;
+using PolygonCoordinates = vector<J<PolygonRing>>;
 struct Geometry {
     J<string,             "type">        type;
     J<PolygonCoordinates, "coordinates"> coordinates;
@@ -27,27 +29,27 @@ struct Feature {
 
 struct Root_ {
     J<string,           "type">      type;
-    J<list<J<Feature>>, "features" > features;
+    J<vector<J<Feature>>, "features" > features;
 
 };
 using Root = J<Root_>;
 
 
-J<list<
-    J<list<
-        J<array<
-            J<double>,
-        2>>
-    >>
->, "coordinates"> coordinates;
-using T = decltype(coordinates);
+//J<list<
+//    J<list<
+//        J<array<
+//            J<double>,
+//        2>>
+//    >>
+//>, "coordinates"> coordinates;
+//using T = decltype(coordinates);
 
-static_assert (JSONReflection::JSONWrappedValue<T>);
-static_assert (std::is_same_v<JSONReflection::JSONValueKindEnumArray, T::JSONValueKind>);
-static_assert (JSONReflection::JSONWrappedValue<T::ItemType>);
-static_assert (JSONReflection::JSONWrappedValue<T::ItemType::ItemType>);
-static_assert (JSONReflection::JSONWrappedValue<T::ItemType::ItemType::ItemType>);
-static_assert (std::is_same_v<JSONReflection::JSONValueKindEnumPlain, T::ItemType::ItemType::ItemType::JSONValueKind>);
+//static_assert (JSONReflection::JSONWrappedValue<T>);
+//static_assert (std::is_same_v<JSONReflection::JSONValueKindEnumArray, T::JSONValueKind>);
+//static_assert (JSONReflection::JSONWrappedValue<T::ItemType>);
+//static_assert (JSONReflection::JSONWrappedValue<T::ItemType::ItemType>);
+//static_assert (JSONReflection::JSONWrappedValue<T::ItemType::ItemType::ItemType>);
+//static_assert (std::is_same_v<JSONReflection::JSONValueKindEnumPlain, T::ItemType::ItemType::ItemType::JSONValueKind>);
 
 
 int canadaJsonPerfTest() {
@@ -135,13 +137,23 @@ int canadaJsonPerfTest() {
 
 
     std::size_t counter = 0;
-    doPerformanceTest("canada.json parsing serializing", 100, [&root, &counter]{
+    auto outputSimulator = new char[10000000];
+    std::size_t outputPtr = 0;
+    auto serializingCallback = [&counter, &outputPtr, &outputSimulator](const char * d, std::size_t size){
+        memcpy(outputSimulator + outputPtr, d, size);
+        outputPtr += size;
+        counter += size;
+        return true;
+    };
+    doPerformanceTest("canada.json  serializing", 100, [&root, &counter, &outputPtr, &serializingCallback]{
         counter = 0;
-        root.Serialize([&counter](const char * d, std::size_t size){
-            counter += size;
-            return true;
-        });
+        outputPtr = 0;
+        root.Serialize(serializingCallback);
     });
+    std::ofstream outputFile("./serialised_output.json");
+    outputFile.write(outputSimulator, outputPtr);
+    outputFile.close();
+
 
     doPerformanceTest("canada.json parsing", 100, [&res, &root, &b, &e]{
         res = root.Deserialize(b, e);

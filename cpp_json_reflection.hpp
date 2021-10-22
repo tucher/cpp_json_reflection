@@ -65,6 +65,12 @@ concept DynamicContainerTypeConcept = requires (T && v) {
         v.clear();
 };
 
+template <typename T>
+concept ReserveCapable = DynamicContainerTypeConcept<T> && requires (T && v) {
+
+        v.reserve(10);
+};
+
 
 template <typename T>
 concept DynamicStringTypeConcept = StringTypeConcept<T> && DynamicContainerTypeConcept<T>;
@@ -73,6 +79,13 @@ template <typename T>
 concept SerializerOutputCallbackConcept = requires (T && clb) {
     {clb(std::declval<const char*>(), std::declval<std::size_t>())} -> std::convertible_to<bool>;
 };
+
+template <typename T>
+concept SerializerOutputBufferConcept = requires (T && buf) {
+    { T::Size  } -> std::convertible_to<std::size_t>;
+    { buf.data } -> std::same_as<char *>;
+};
+
 
 template<typename T>
 concept JSONBasicValue = std::same_as<T, bool> || std::same_as<T, double>|| std::convertible_to<T, std::int64_t> || StringTypeConcept<T>;
@@ -91,7 +104,6 @@ concept InputIteratorConcept =  std::forward_iterator<InpIter> && requires(InpIt
 template<typename T>
 concept JSONWrapable = JSONBasicValue<T> || JSONArrayValue<T> || JSONObjectValue<T>;
 template <class Src, JSONFieldNameStringLiteral Str = "">
-//requires JSONBasicValue<Src> || JSONArrayValue<Src> || JSONObjectValue<Src>
 class J {
     template <class... T>
     static constexpr bool always_false = false;
@@ -260,14 +272,14 @@ public:
         if constexpr(std::same_as<bool, Src>) {
             if(content) {
                 char v[] = "true";
-                return clb(v, sizeof(v));
+                return clb(v, sizeof(v)-1);
             }
             else {
                 char v[] = "false";
-                return clb(v, sizeof(v));
+                return clb(v, sizeof(v)-1);
             }
         } else if constexpr(StringTypeConcept<Src>) {
-            if(char v[] = "\""; !clb(v, sizeof(v))) {
+            if(char v[] = "\""; !clb(v, sizeof(v)-1)) {
                 return false;
             }
             if constexpr(DynamicStringTypeConcept<Src>) {
@@ -281,7 +293,7 @@ public:
                     return false;
                 }
             }
-            if(char v[] = "\""; !clb(v, sizeof(v))) {
+            if(char v[] = "\""; !clb(v, sizeof(v)-1)) {
                 return false;
             }
             return true;
@@ -408,7 +420,7 @@ public:
 
     using JSONValueKind = JSONValueKindEnumArray;
     bool Serialize(SerializerOutputCallbackConcept auto && clb) const {
-        if(char v[] = "["; !clb(v, sizeof(v))) {
+        if(char v[] = "["; !clb(v, sizeof(v)-1)) {
             return false;
         }
         std::size_t last = static_cast<const Src&>(*this).size()-1;
@@ -418,7 +430,7 @@ public:
                 return false;
             }
             if(i != last) {
-                if(char v[] = ","; !clb(v, sizeof(v))) {
+                if(char v[] = ","; !clb(v, sizeof(v)-1)) {
                     return false;
                 }
             }
@@ -426,7 +438,7 @@ public:
         }
 
         char v[] = "]";
-        return clb(v, sizeof(v));
+        return clb(v, sizeof(v)-1);
     }
 
     template<class InpIter> requires InputIteratorConcept<InpIter>
@@ -434,6 +446,10 @@ public:
         if(!skipWhiteSpaceTill(begin, end, '[')) return false;
         if constexpr (DynamicContainerTypeConcept<Src>) {
             static_cast<Src&>(*this).clear();
+            if constexpr (ReserveCapable<Src>) {
+//                static_cast<Src&>(*this).reserve(1000); //TODO via options
+            }
+            ItemType newItem;
             while(begin != end) {
                 if(!skipWhiteSpace(begin, end)) {
                     return false;
@@ -442,8 +458,6 @@ public:
                     begin ++;
                     return true;
                 }
-
-                ItemType newItem;
 
                 bool ok = newItem.DeserialiseInternal(begin, end);
                 if(!ok) {
@@ -595,22 +609,22 @@ public:
         pfr::for_each_field(static_cast<const Src &>(*this), [&last_index]<class T>(const T & val, std::size_t index){
             if constexpr(JSONWrappedValue<T>) { last_index = index;}
         });
-        if(char v[] = "{"; !clb(v, sizeof(v))) {
+        if(char v[] = "{"; !clb(v, sizeof(v)-1)) {
             return false;
         }
         bool r = true;
         auto visitor = [&clb, last_index, &r]<class T>(const T & val, std::size_t index) {
             if(!r) return;
             if constexpr(JSONWrappedValue<T>) {
-                if(char v[] = "\""; !clb(v, sizeof(v))) {
+                if(char v[] = "\""; !clb(v, sizeof(v)-1)) {
                     r = false;
                     return;
                 }
-                if(char v[] = "\""; !clb(reinterpret_cast<const char*>(val.FieldName.m_data), val.FieldName.Length * val.FieldName.CharSize)) {
+                if(!clb(reinterpret_cast<const char*>(val.FieldName.m_data), val.FieldName.Length * val.FieldName.CharSize)) {
                     r = false;
                     return;
                 }
-                if(char v[] = "\":"; !clb(v,  sizeof(v))) {
+                if(char v[] = "\":"; !clb(v,  sizeof(v)-1)) {
                     r = false;
                     return;
                 }
@@ -620,7 +634,7 @@ public:
                     return;
                 }
                 if(index != last_index) {
-                    if(char v[] = ","; !clb(v, sizeof(v))) {
+                    if(char v[] = ","; !clb(v, sizeof(v)-1)) {
                         r = false;
                         return;
                     }
@@ -629,7 +643,7 @@ public:
         };
         pfr::for_each_field(static_cast<const Src &>(*this), visitor);
         if(!r) return false;
-        if(char v[] = "}"; !clb(v, sizeof(v))) {
+        if(char v[] = "}"; !clb(v, sizeof(v)-1)) {
             return false;
         }
         return true;
