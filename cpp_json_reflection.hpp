@@ -81,17 +81,22 @@ template<typename T>
 concept JSONArrayValue = std::ranges::range<T> && !JSONBasicValue<T> && JSONWrappedValue<typename T::value_type>;
 
 template<typename T>
-concept JSONObjectValue = std::is_class_v<T> && !JSONArrayValue<T> && !JSONBasicValue<T>;
+concept JSONObjectValue = std::is_class_v<T> && !std::ranges::range<T> && !JSONArrayValue<T> && !JSONBasicValue<T>;
 
 template<typename InpIter>
 concept InputIteratorConcept =  std::forward_iterator<InpIter> && requires(InpIter inp) {
     {*inp} -> std::convertible_to<char>;
 };
 
-
+template<typename T>
+concept JSONWrapable = JSONBasicValue<T> || JSONArrayValue<T> || JSONObjectValue<T>;
 template <class Src, JSONFieldNameStringLiteral Str = "">
-requires JSONBasicValue<Src> || JSONArrayValue<Src> || JSONObjectValue<Src>
+//requires JSONBasicValue<Src> || JSONArrayValue<Src> || JSONObjectValue<Src>
 class J {
+    template <class... T>
+    static constexpr bool always_false = false;
+    static_assert(always_false<Src>, "JSONReflection: Cannot represent type in terms of JSON. See next compiler messages for details");
+    static_assert (JSONWrapable<Src>);
 };
 
 inline bool isSpace(char a) {

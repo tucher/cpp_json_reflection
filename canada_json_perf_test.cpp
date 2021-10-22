@@ -37,9 +37,9 @@ J<list<
     J<list<
         J<array<
             J<double>,
-        2>
+        2>>
     >>
->>, "coordinates"> coordinates;
+>, "coordinates"> coordinates;
 using T = decltype(coordinates);
 
 static_assert (JSONReflection::JSONWrappedValue<T>);
