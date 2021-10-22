@@ -6,57 +6,48 @@
 #include <chrono>
 #include <utility>
 
+#include "test_utils.hpp"
 
-template<typename F, typename... Args>
-void doPerformanceTest(std::string title, std::size_t count, F func, Args&&... args){
-    std::chrono::high_resolution_clock::time_point t1=std::chrono::high_resolution_clock::now();
-    for(std::size_t i = 0; i < count; i++) {
-        func(std::forward<Args>(args)...);
-    }
-    double toUs = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now()-t1).count();
-    double res = toUs / double(count);
-    std::cerr << title << " " << res << " us" << std::endl << std::flush;
-}
-
-using JSONReflection::JS;
+using JSONReflection::J;
 
 using std::vector, std::list, std::array, std::string, std::int64_t;
 
 struct InnerStruct {
-    JS<string, "name">  name;
-    JS<double, "value"> value;
+    J<string, "name">  name;
+    J<double, "value"> value;
 };
 
 struct InnerStruct2 {
-    JS<array<char, 15>, "p1">           p1;
-    JS<double,          "p2">           p2 = 42.367;
-    JS<double,          "p3">           p3;
-    JS<bool,            "p4">           p4;
-    JS<InnerStruct,     "inner_struct"> inner_struct;
+    J<array<char, 15>, "p1">           p1;
+    J<double,          "p2">           p2 = 42.367;
+    J<double,          "p3">           p3;
+    J<bool,            "p4">           p4;
+    J<InnerStruct,     "inner_struct"> inner_struct;
 };
 
 struct InnerStruct3 {
-    JS<InnerStruct2, "3level_nesting"> _3level_nesting;
+    J<InnerStruct2, "3level_nesting"> _3level_nesting;
 };
 
 struct RootObject_ {
-    JS<InnerStruct3,            "obj">          obj;
-    JS<int64_t,                 "a">            a;
+    J<InnerStruct3,            "obj">          obj;
+    J<int64_t,                 "a">            a;
     string                                      UNAVAILABLE_FOR_JSON;
-    JS<list<JS<InnerStruct>>,   "values_array"> values_array;
-    JS<InnerStruct2,            "params">       params;
-    JS<vector<char>,            "string_like">  string_like;
-    JS<vector<JS<bool>>,        "primitive_array">  primitive_array;
-    JS<array<JS<int64_t>, 5>,   "ints_array">  ints_array;
+    J<list<J<InnerStruct>>,   "values_array"> values_array;
+    J<InnerStruct2,            "params">       params;
+    J<vector<char>,            "string_like">  string_like;
+    J<vector<J<bool>>,        "primitive_array">  primitive_array;
+    J<array<J<int64_t>, 5>,   "ints_array">  ints_array;
 };
 
-using RootObject = JS<RootObject_>;
+using RootObject = J<RootObject_>;
 
 
-
-
+//using TestInline = J
+int canadaJsonPerfTest();
 int main()
 {
+    return canadaJsonPerfTest();
     constexpr char inp3const[]{R"(
         {
             "primitive_array": [true,false,true,false],
@@ -89,12 +80,13 @@ int main()
         }
     )"};
     std::string inp3 = inp3const;
+    std::cout << "JSON length: " << inp3.size() << std::endl;
 
     RootObject t3;
     char * b = &inp3.data()[0];
     char * e = &inp3.data()[inp3.size()];
 
-    doPerformanceTest("Perf Test For t3.Deserialize: ", 2000000, [&t3, &b, &e]{
+    doPerformanceTest("Perf Test For t3.Deserialize", 2000000, [&t3, &b, &e]{
         bool res1 = t3.Deserialize(b, e);
         if(!res1) throw 1;
     });
@@ -127,7 +119,7 @@ int main()
 
 //    }
 
-    doPerformanceTest("Perf Test For t3.Serialize: ", 1000000, [&testInit, &counter]{
+    doPerformanceTest("Perf Test For t3.Serialize", 1000000, [&testInit, &counter]{
         counter = 0;
         testInit.Serialize([&counter](const char * d, std::size_t size){
             counter += size;
@@ -135,10 +127,15 @@ int main()
         });
     });
 
-    testInit.Serialize([](const char * d, std::size_t size){
-        std::cout << std::string(d, size);
-        return true;
-    });
+    {
+        std::size_t counter = 0;
+        testInit.Serialize([&counter](const char * d, std::size_t size){
+            std::cout << std::string(d, size);
+            counter += size;
+            return true;
+        });
+        std::cout << std::endl << "Size ↑: " << counter << std::endl;
+    }
 
     std::cout << std::endl << std::endl;
     std::cout << std::flush;
@@ -147,7 +144,7 @@ int main()
 
     InnerStruct ins1{std::string("fu"), 42};
 
-    JS<InnerStruct> s;
+    J<InnerStruct> s;
     s.name = "erfefr";
     s.value = 810;
 
@@ -181,24 +178,24 @@ int main()
 
 
 
-static_assert (sizeof(JS<RootObject_>) == sizeof (RootObject_) );
+static_assert (sizeof(J<RootObject_>) == sizeof (RootObject_) );
 
 
 struct InnerFreeObject {
-    JS<bool, "flag_1"> f1 = true;
-    JS<bool, "flag_2"> f2 = false;
+    J<bool, "flag_1"> f1 = true;
+    J<bool, "flag_2"> f2 = false;
 };
 
 struct FreeObject_ {
-    JS<InnerFreeObject,              "flags">          flags;
-    JS<int64_t,                      "counter"  >      counter;
-    JS<array<JS<InnerFreeObject>, 3>,"flags_array">    flag_array;
+    J<InnerFreeObject,              "flags">          flags;
+    J<int64_t,                      "counter"  >      counter;
+    J<array<J<InnerFreeObject>, 3>,"flags_array">    flag_array;
     struct {} dummy;
     struct {} dummy2;
-    JS<int64_t,                      "counter2"  >      counter2;
+    J<int64_t,                      "counter2"  >      counter2;
     struct {} dummy3;
 };
-using FreeObject = JS<FreeObject_>;
+using FreeObject = J<FreeObject_>;
 
 
 
@@ -207,7 +204,7 @@ static_assert (std::is_trivially_copyable_v<FreeObject>);
 
 static_assert (std::tuple_size_v< FreeObject::testTupleT> == 7);
 //static_assert (std::tuple_element_t<1, FreeObject::testTupleT>)
-static_assert (std::same_as<JS<std::int64_t, "counter"  >, std::tuple_element_t<1, FreeObject::testTupleT2>> );
+static_assert (std::same_as<J<std::int64_t, "counter"  >, std::tuple_element_t<1, FreeObject::testTupleT2>> );
 static_assert (std::tuple_element_t<1, FreeObject::testTupleT>::skip == false );
 static_assert (std::tuple_element_t<2, FreeObject::testTupleT>::FieldName.Length == 11 );
 static_assert (std::tuple_element_t<3, FreeObject::testTupleT>::skip == true );
@@ -255,10 +252,10 @@ void f1(InnerStruct2 & s) {
 }
 
 void compileTimeTests() {
-    JS<bool> boolV{true};
+    J<bool> boolV{true};
     boolV = false;
 
-    JS<bool> boolV2 = true;
+    J<bool> boolV2 = true;
 
     RootObject t1;
 

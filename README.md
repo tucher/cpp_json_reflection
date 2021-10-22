@@ -81,6 +81,15 @@ or
 
     bool res = root.Deserialize(ContainerWithChars);
 
+Object may contain garbage data if failed, so use something like this to restore previous values:
+
+    
+    if(auto temp = obj; !obj.Deserialize(ContainerWithChars)) {
+        obj = temp
+    } else {
+        //success;
+    }
+
 ### Performance
 - No memory overhead:
 
