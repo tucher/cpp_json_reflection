@@ -3,6 +3,21 @@
 
 #include <sstream>
 #include <list>
+#include <chrono>
+#include <utility>
+
+
+template<typename F, typename... Args>
+void doPerformanceTest(std::string title, std::size_t count, F func, Args&&... args){
+    std::chrono::high_resolution_clock::time_point t1=std::chrono::high_resolution_clock::now();
+    for(std::size_t i = 0; i < count; i++) {
+        func(std::forward<Args>(args)...);
+    }
+    double toUs = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now()-t1).count();
+    double res = toUs / double(count);
+    std::cerr << title << " " << res << " us" << std::endl << std::flush;
+}
+
 using JSONReflection::JS;
 
 using std::vector, std::list, std::array, std::string, std::int64_t;
@@ -38,21 +53,6 @@ struct RootObject_ {
 using RootObject = JS<RootObject_>;
 
 
-struct InnerFreeObject {
-    JS<bool, "flag_1"> f1 = true;
-    JS<bool, "flag_2"> f2 = false;
-};
-
-struct FreeObject_ {
-    JS<InnerFreeObject,              "flags">          flags;
-    JS<int64_t,                      "counter"  >      counter;
-    JS<array<JS<InnerFreeObject>, 3>,"flags_array">    flag_array;
-    struct {} dummy;
-    struct {} dummy2;
-    JS<int64_t,                      "counter2"  >      counter2;
-    struct {} dummy3;
-};
-using FreeObject = JS<FreeObject_>;
 
 
 int main()
@@ -93,22 +93,47 @@ int main()
     RootObject t3;
     char * b = &inp3.data()[0];
     char * e = &inp3.data()[inp3.size()];
-    while(true) {
+
+    doPerformanceTest("Perf Test For t3.Deserialize: ", 2000000, [&t3, &b, &e]{
         bool res1 = t3.Deserialize(b, e);
         if(!res1) throw 1;
+    });
 
-    }
+//    while(true) {
+//        bool res1 = t3.Deserialize(b, e);
+//        if(!res1) throw 1;
 
-    t3.Deserialize(inp3);
+//    }
+
+//    t3.Deserialize(inp3);
     RootObject testInit{{
             .a {4444},
             .values_array {{
-                    {{.name = {"Fuu"}, .value = {-273}}},
-                    {{.name = {"Fuuu"}, .value = {-274}}}
+                    {{.name = {"Fuu"}, .value = {-273.55556}}},
+                    {{.name = {"Fuuu"}, .value = {-274.123456789}}}
                      }},
             .primitive_array {{true, false, true, false}},
             .ints_array {{10, 100, 1000, 10000, 100000}}
                         }};
+
+    std::size_t counter = 0;
+
+//    while(true) {
+//        counter = 0;
+//        testInit.Serialize([&counter](const char * d, std::size_t size){
+//            counter += size;
+//            return true;
+//        });
+
+//    }
+
+    doPerformanceTest("Perf Test For t3.Serialize: ", 1000000, [&testInit, &counter]{
+        counter = 0;
+        testInit.Serialize([&counter](const char * d, std::size_t size){
+            counter += size;
+            return true;
+        });
+    });
 
     testInit.Serialize([](const char * d, std::size_t size){
         std::cout << std::string(d, size);
@@ -157,6 +182,24 @@ int main()
 
 
 static_assert (sizeof(JS<RootObject_>) == sizeof (RootObject_) );
+
+
+struct InnerFreeObject {
+    JS<bool, "flag_1"> f1 = true;
+    JS<bool, "flag_2"> f2 = false;
+};
+
+struct FreeObject_ {
+    JS<InnerFreeObject,              "flags">          flags;
+    JS<int64_t,                      "counter"  >      counter;
+    JS<array<JS<InnerFreeObject>, 3>,"flags_array">    flag_array;
+    struct {} dummy;
+    struct {} dummy2;
+    JS<int64_t,                      "counter2"  >      counter2;
+    struct {} dummy3;
+};
+using FreeObject = JS<FreeObject_>;
+
 
 
 static_assert (std::is_trivially_copyable_v<FreeObject>);

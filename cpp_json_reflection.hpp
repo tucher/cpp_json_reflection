@@ -11,7 +11,11 @@
 #include <swl/variant.hpp>
 #include <algorithm>
 #include <fast_double_parser.h>
-
+namespace simdjson {
+namespace internal {
+char *to_chars(char *first, const char *last, double value);
+}
+}
 namespace JSONReflection {
 
 
@@ -23,6 +27,9 @@ template <typename CharT, std::size_t N> struct JSONFieldNameStringLiteral
     CharT m_data[N+1];
     static constexpr std::size_t Length = N;
     static constexpr std::size_t CharSize = sizeof (CharT);
+    constexpr std::string_view toStringView() const {
+        return {&m_data[0], &m_data[Length]};
+    }
 };
 
 template <typename CharT, std::size_t N>
@@ -83,27 +90,36 @@ requires JSONBasicValue<Src> || JSONArrayValue<Src> || JSONObjectValue<Src>
 class JS {
 };
 
+
+template<typename InpIter>
+concept InputIteratorConcept =  std::forward_iterator<InpIter> && requires(InpIter inp) {
+    {*inp} -> std::convertible_to<char>;
+};
+
+
+
+
 bool isSpace(char a) {
     return a == 0x20 || a == 0x0A || a == 0x0D || a == 0x09;
 }
-bool skipWhiteSpace(std::forward_iterator auto & begin, const std::forward_iterator auto & end) {
-    while(begin != end && isSpace(*begin))
+bool skipWhiteSpace(InputIteratorConcept auto & begin, const InputIteratorConcept auto & end) {
+    while(isSpace(*begin) && begin != end)
         begin ++;
     if (begin == end) return false;
     return true;
 }
 
-bool skipTillPlainEnd(std::forward_iterator auto & begin, const std::forward_iterator auto & end) {
-    while(begin != end && !isSpace(*begin)
+bool skipTillPlainEnd(InputIteratorConcept auto & begin, const InputIteratorConcept auto & end) {
+    while(!isSpace(*begin)
           && *begin != ','
           && *begin != '}'
-          && *begin != ']')
+          && *begin != ']' && begin != end)
         begin ++;
     if (begin == end) return false;
     return true;
 }
 
-bool skipJsonValue(std::forward_iterator auto & begin, const std::forward_iterator auto & end) {
+bool skipJsonValue(InputIteratorConcept auto & begin, const InputIteratorConcept auto & end) {
     if(!skipWhiteSpace(begin, end)) return false;
     int level = 0;
     enum class Where {
@@ -147,27 +163,24 @@ bool skipJsonValue(std::forward_iterator auto & begin, const std::forward_iterat
 
 
 
-bool skipTill(std::forward_iterator auto & begin, const std::forward_iterator auto & end, char s) {
-    while(begin != end && *begin != s)
+bool skipTill(InputIteratorConcept auto & begin, const InputIteratorConcept auto & end, char s) {
+    while( *begin != s && begin != end)
         begin ++;
     if (begin == end) return false;
     return true;
 }
 
-bool skipWhiteSpaceTill(std::forward_iterator auto & begin, const std::forward_iterator auto & end, char s) {
-    while(begin != end) {
-        if(isSpace(*begin)) {
-           begin ++;
-        } else if(*begin == s) {
-            begin ++;
-            break;
-        }
+bool skipWhiteSpaceTill(InputIteratorConcept auto & begin, const InputIteratorConcept auto & end, char s) {
+    if(!skipWhiteSpace(begin, end)) return false;
+    if(*begin == s) {
+        begin ++;
+        if (begin == end) return false;
+        return true;
     }
-    if (begin == end) return false;
-    return true;
+    return false;
 }
 
-template<class InpIter> requires std::forward_iterator<InpIter>
+template<class InpIter> requires InputIteratorConcept<InpIter>
 InpIter findJsonKeyStringEnd(InpIter begin, const InpIter & end) {
     for(; begin != end; begin ++) {
         char c = reinterpret_cast<char>(*begin);
@@ -268,25 +281,22 @@ public:
                 return false;
             }
             return true;
-        } else if constexpr(std::same_as<double, Src>) {
-            if(std::isnan(content)) {
+        } else if constexpr(std::same_as<double, Src> || std::same_as<std::int64_t, Src>) {
+            if(std::isnan(content) || std::isinf(content)) {
                 char v[] = "0";
                 return clb(v, 1);
             } else {
-                char buf[25];
-                int s = snprintf(buf, sizeof (buf), "%g", content);
-                if(s == sizeof (buf)) return false;
-                else return clb(buf, s);
+                char buf[50];
+
+                char * endChar = simdjson::internal::to_chars(buf, buf + sizeof (buf), content);
+                if(endChar-buf == sizeof (buf)) return false;
+                else return clb(buf, endChar-buf);
             }
-        } else if constexpr(std::same_as<std::int64_t, Src>) {
-            char buf[25];
-            int s = snprintf(buf,  sizeof (buf), "%" PRId64, content);
-            if(s == sizeof (buf)) return false;
-            else return clb(buf, s);
-        }
+        } else
+            return true;
     }
 
-    template<class InpIter> requires std::forward_iterator<InpIter>
+    template<class InpIter> requires InputIteratorConcept<InpIter>
     bool DeserialiseInternal(InpIter & begin, const InpIter & end) {
         if(!skipWhiteSpace(begin, end)) return false;
 
@@ -411,7 +421,7 @@ public:
         return clb(v, sizeof(v));
     }
 
-    template<class InpIter> requires std::forward_iterator<InpIter>
+    template<class InpIter> requires InputIteratorConcept<InpIter>
     bool DeserialiseInternal(InpIter & begin, const InpIter & end) {
         if(!skipWhiteSpaceTill(begin, end, '[')) return false;
         if constexpr (DynamicContainerTypeConcept<Src>) {
@@ -487,6 +497,20 @@ struct KeyIndexBuilder<std::tuple<FieldTypes...>, std::index_sequence<Is...>>  {
     static constexpr std::size_t jsonFieldsCount = (0 + ... + (KeyIndexEntry<Is, FieldTypes>::skip ? 0: 1));
     using KeyIndexEntryArrayType = std::array<VarT, jsonFieldsCount>;
 
+
+    struct ProjKeyIndexVariantToStringView{
+        constexpr std::string_view operator()(VarT val) const {
+            return swl::visit(
+                    []<class KeyIndexType>(KeyIndexType keyIndex) -> std::string_view {
+                            if constexpr(KeyIndexType::skip == false) {
+                                return keyIndex.FieldName.toStringView();
+                            } else
+                                return {};
+                    }
+           , val);
+        }
+    };
+
     static constexpr KeyIndexEntryArrayType sortKeyIndexes(std::array<VarT, sizeof... (Is)>  vals) {
         KeyIndexEntryArrayType ret;
         std::size_t j = 0;
@@ -496,25 +520,9 @@ struct KeyIndexBuilder<std::tuple<FieldTypes...>, std::index_sequence<Is...>>  {
                 j++;
             }
         }
-        struct {
-               constexpr bool operator()(VarT a, VarT b) const {
-                   return swl::visit(
-                               []<class FT, class ST>(FT first, ST second) -> bool{
-                                   if constexpr (FT::skip == false && ST::skip == false) {
-                                       std::size_t first1 = 0, first2 = 0, last1 = first.FieldName.Length, last2 = second.FieldName.Length;
-                                       for ( ; (first1 != last1) && (first2 != last2); ++first1, (void) ++first2 ) {
-                                          if (first.FieldName.m_data[first1] < second.FieldName.m_data[first2]) return true;
-                                          if (second.FieldName.m_data[first2] < first.FieldName.m_data[first1]) return false;
-                                       }
-                                       return (first1 == last1) && (first2 != last2);
-                                   } else
-                                   return false;
-                               }
-                               , a, b);
-               }
-        } customLess;
 
-        std::ranges::sort(ret, customLess);
+
+        std::ranges::sort(ret, std::ranges::less{}, ProjKeyIndexVariantToStringView{});
         return ret;
     }
     static constexpr KeyIndexEntryArrayType sortedKeyIndexArray = sortKeyIndexes({KeyIndexEntry<Is, FieldTypes>()...});
@@ -525,6 +533,42 @@ struct KeyIndexBuilder<std::tuple<FieldTypes...>, std::index_sequence<Is...>>  {
     using testTupleT2 = std::tuple<FieldTypes...>;
 };
 
+template<class ForwardIt, class T, class Compare, class Proj>
+ForwardIt lower_bound(ForwardIt first, ForwardIt last, const T& value, Compare comp, Proj proj)
+{
+    ForwardIt it;
+    typename std::iterator_traits<ForwardIt>::difference_type count, step;
+    count = std::distance(first, last);
+
+    while (count > 0) {
+        it = first;
+        step = count / 2;
+        std::advance(it, step);
+        if (comp(proj(*it), value)) {
+            first = ++it;
+            count -= step + 1;
+        }
+        else
+            count = step;
+    }
+    return first;
+}
+
+template<std::forward_iterator I, std::sentinel_for<I> S, class T,
+         class Proj = std::identity,
+         std::indirect_strict_weak_order<
+             const T*,
+             std::projected<I, Proj>> Comp = std::ranges::less>
+constexpr I
+binary_search(I first, S last, const T& value, Comp comp = {}, Proj proj = {})
+{
+    first = lower_bound(first, last, value, comp, proj);
+    if (!(first == last) && !(comp(value, proj(*first)))) {
+        return first;
+    } else {
+        return last;
+    }
+}
 
 template <JSONObjectValue Src, JSONFieldNameStringLiteral Str>
 class JS<Src, Str> : public Src {
@@ -581,76 +625,35 @@ private:
     using KeyIndexBuilderT = KeyIndexBuilder<decltype (pfr::structure_to_tuple(std::declval<Src>())), std::make_index_sequence<pfr::tuple_size_v<Src>>>;
     static constexpr auto sortedKeyIndexArray = KeyIndexBuilderT::sortedKeyIndexArray;
 
+
 public:
 
 
-    template<class InpIter> requires std::forward_iterator<InpIter>
+    template<class InpIter> requires InputIteratorConcept<InpIter>
     bool DeserialiseField(const InpIter & keyBegin, const InpIter & keyEnd, InpIter &begin, const InpIter & end) {
-        struct proj{
-            int offset = 0;
-            char operator()(typename KeyIndexBuilderT::VarT val) const {
-                return swl::visit(
-                        [this]<class KeyIndexType>(KeyIndexType keyIndex) -> char{
-                                if constexpr(KeyIndexType::skip == false) {
-                                    return keyIndex.FieldName.m_data[offset];
-                                } else
-                                    return '\0';
-                        }
-               , val);
-            }
-        };
-        int namesOffs = 0;
-        auto searchStart = sortedKeyIndexArray.begin();
-        auto searchEnd = sortedKeyIndexArray.end();
-        for(auto sI = keyBegin; sI != keyEnd; sI ++) {
-            auto rng = std::ranges::equal_range(searchStart, searchEnd, *sI,  std::ranges::less{}, proj{namesOffs});
-            if(rng.empty()) {
-                return skipJsonValue(begin, end);
-            } else if(rng.size() == 1) {
-                bool skip = false;
-                bool deserRes = swl::visit(
-                        [this, &begin, &end, &namesOffs, &sI, &keyEnd, &skip]<class KeyIndexType>(KeyIndexType keyIndex) -> bool{
-                                if constexpr(KeyIndexType::skip == false) {
-                                    //check field name
+        std::string_view keySV{keyBegin, keyEnd};
 
-                                    for(std::size_t i = namesOffs; i < KeyIndexType::FieldName.Length; i ++) {
-                                        if(sI == keyEnd) {
-                                            skip = true;
-                                            return false;
-                                        }
-                                        if(KeyIndexType::FieldName.m_data[i] != *sI) {
-                                            skip = true;
-                                            return false;
-                                        }
-                                        sI ++;
-                                    }
-                                    if(sI != keyEnd) {
-                                        skip = true;
-                                        return false;
-                                    }
+        auto foundVarIt = binary_search(sortedKeyIndexArray.begin(), sortedKeyIndexArray.end(), keySV, std::ranges::less{}, typename KeyIndexBuilderT::ProjKeyIndexVariantToStringView{});
 
-                                    using FieldType = pfr::tuple_element_t<KeyIndexType::OriginalIndex, Src>;
-                                    FieldType & f = pfr::get<KeyIndexType::OriginalIndex>(static_cast<Src &>(*this));
-                                    return f.DeserialiseInternal(begin, end);
-
-                                } else
-                                    return false;
-                        }
-               , rng.front());
-                if(skip) {
-                    return skipJsonValue(begin, end);
-                }
-                return deserRes;
-            } else {
-                searchStart = rng.begin();
-                searchEnd = rng.end();
-            }
-            namesOffs ++;
+        if(foundVarIt == sortedKeyIndexArray.end()) {
+            return skipJsonValue(begin, end);
         }
 
-        return false;
+        bool deserRes = swl::visit(
+                [this, &begin, &end]<class KeyIndexType>(KeyIndexType keyIndex) -> bool{
+                    if constexpr(KeyIndexType::skip == false) {
+                        using FieldType = pfr::tuple_element_t<KeyIndexType::OriginalIndex, Src>;
+                        FieldType & f = pfr::get<KeyIndexType::OriginalIndex>(static_cast<Src &>(*this));
+                        return f.DeserialiseInternal(begin, end);
+
+                    } else
+                        return false;
+                }
+        , *foundVarIt);
+
+        return deserRes;
     }
-    template<class InpIter> requires std::forward_iterator<InpIter>
+    template<class InpIter> requires InputIteratorConcept<InpIter>
     bool Deserialize(InpIter begin, const InpIter & end) {
         return DeserialiseInternal(begin, end);
     }
@@ -661,7 +664,7 @@ public:
         return DeserialiseInternal(b, c.end());
     }
 
-    template<class InpIter> requires std::forward_iterator<InpIter>
+    template<class InpIter> requires InputIteratorConcept<InpIter>
     bool DeserialiseInternal(InpIter & begin, const InpIter & end) {
         if(!skipWhiteSpaceTill(begin, end, '{')) return false;
         while(begin != end) {
