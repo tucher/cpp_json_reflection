@@ -45,31 +45,31 @@ struct JSONValueKindEnumArray {};
 template<typename T>
 concept JSONWrappedValue = requires {
         typename T::JSONValueKind;
-        std::is_same_v<typename T::JSONValueKind, JSONValueKindEnumPlain>
+        requires std::is_same_v<typename T::JSONValueKind, JSONValueKindEnumPlain>
         || std::is_same_v<typename T::JSONValueKind, JSONValueKindEnumObject>
         || std::is_same_v<typename T::JSONValueKind, JSONValueKindEnumArray>;
         };
 
 
 template <typename T>
-concept StringTypeConcept = requires (T && v) {
+concept StringTypeConcept = requires (T v) {
     typename T::value_type;
-    std::is_pointer_v<decltype(v.data())>;
-    std::is_integral_v<std::remove_pointer_t<decltype(v.data())>>;
+    requires std::is_pointer_v<decltype(v.data())>;
+    requires std::is_integral_v<std::remove_pointer_t<decltype(v.data())>>;
     {v.size()} -> std::convertible_to<std::size_t>;
     {v[0]} -> std::convertible_to<typename T::value_type>;
     requires !JSONWrappedValue<typename T::value_type>;
 };
 
 template <typename T>
-concept DynamicContainerTypeConcept = requires (T && v) {
+concept DynamicContainerTypeConcept = requires (T  v) {
         typename T::value_type;
         v.push_back(std::declval<typename T::value_type>());
         v.clear();
 };
 
 template <typename T>
-concept ReserveCapable = DynamicContainerTypeConcept<T> && requires (T && v) {
+concept ReserveCapable = DynamicContainerTypeConcept<T> && requires (T  v) {
     v.reserve(10);
 };
 
@@ -77,12 +77,12 @@ template <typename T>
 concept DynamicStringTypeConcept = StringTypeConcept<T> && DynamicContainerTypeConcept<T>;
 
 template <typename T>
-concept SerializerOutputCallbackConcept = requires (T && clb) {
+concept SerializerOutputCallbackConcept = requires (T clb) {
     {clb(std::declval<const char*>(), std::declval<std::size_t>())} -> std::convertible_to<bool>;
 };
 
 template <typename T>
-concept SerializerOutputBufferConcept = requires (T && buf) {
+concept SerializerOutputBufferConcept = requires (T  buf) {
     { T::Size  } -> std::convertible_to<std::size_t>;
     { buf.data } -> std::same_as<char *>;
 };

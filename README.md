@@ -147,3 +147,6 @@ Object may contain garbage half-parsed data if deserialization fails, so use som
 - Work on complete transparency of ```J```-wrapped objects
 - Compile-time options for max size if dynamic objects, preallocated containers size, etc..
 - Complete test suit, including fuzzing
+- Add support of custom serializers/deserializers
+- Improve JSON skipping
+- Cannot construct J<T> from T
