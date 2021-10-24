@@ -28,7 +28,6 @@ concept SerializerOutputCallbackConcept = requires (T clb) {
 };
 
 
-
 namespace  d {
 
 using SerializerStubT = bool (*)(const char *data, std::size_t size);
@@ -61,7 +60,6 @@ concept JSONWrappedValue = requires {
         || std::is_same_v<typename T::JSONValueKind, JSONValueKindEnumObject>
         || std::is_same_v<typename T::JSONValueKind, JSONValueKindEnumArray>;
         };
-
 
 template <typename T>
 concept StringTypeConcept = requires (T v) {
@@ -116,6 +114,7 @@ template<typename T>
 concept JSONWrapable = JSONBasicValue<T> || JSONArrayValue<T> || JSONObjectValue<T>;
 
 }
+
 template <class Src, d::ConstString Str = "">
 class J {
     template <class... T>
@@ -124,10 +123,8 @@ class J {
     static_assert (d::JSONWrapable<Src>);
 };
 
-
 template <d::JSONBasicValue Src, d::ConstString Str>
 class J<Src, Str> {
-
     Src content;
 public:
     using JSONValueKind = d::JSONValueKindEnumPlain;
@@ -139,25 +136,20 @@ public:
     operator const Src&() const {
         return content;
     }
-    constexpr J(): content(Src())  {
-
-    }
-    J(const Src & val):content(val)  {
-
-    }
+    constexpr J(): content(Src())  {}
+    J(const Src & val):content(val)  {}
 
     Src & operator=(const Src & other) {
         return content = other;
     }
+
     auto operator<=>(const J&) const = default;
     auto operator<=>(const Src& rhs) const {
         return content <=> rhs;
     }
-
     auto operator==(const Src& rhs) const {
         return content == rhs;
     }
-
     auto operator!=(const Src& rhs) const {
         return content != rhs;
     }
@@ -222,7 +214,8 @@ public:
 
     template<class InpIter> requires InputIteratorConcept<InpIter>
     bool DeserialiseInternal(InpIter & begin, const InpIter & end) {
-        if(!d::skipWhiteSpace(begin, end)) return false;
+        if(!d::skipWhiteSpace(begin, end))
+            return false;
 
         if constexpr(std::same_as<bool, Src>) {
             char fc = *begin;
@@ -345,9 +338,7 @@ public:
         return static_cast<Src &>(*this) = other;
     }
     J() = default;
-
     J(const Src & other): Src(other) {}
-
 
 
     bool SerializeInternal(SerializerOutputCallbackConcept auto && clb) const {
@@ -367,7 +358,6 @@ public:
             }
             i++;
         }
-
         char v[] = "]";
         return clb(v, sizeof(v)-1);
     }
@@ -457,7 +447,6 @@ struct KeyIndexBuilder<std::tuple<FieldTypes...>, std::index_sequence<Is...>>  {
     static constexpr std::size_t jsonFieldsCount = (0 + ... + (KeyIndexEntry<Is, FieldTypes>::skip ? 0: 1));
     using KeyIndexEntryArrayType = std::array<VarT, jsonFieldsCount>;
 
-
     struct ProjKeyIndexVariantToStringView{
         constexpr std::string_view operator()(VarT val) const {
             return swl::visit(
@@ -484,11 +473,6 @@ struct KeyIndexBuilder<std::tuple<FieldTypes...>, std::index_sequence<Is...>>  {
         return ret;
     }
     static constexpr KeyIndexEntryArrayType sortedKeyIndexArray = sortKeyIndexes({KeyIndexEntry<Is, FieldTypes>()...});
-
-    //TODO remove later
-
-    using testTupleT = std::tuple<KeyIndexEntry<Is, FieldTypes>...>;
-    using testTupleT2 = std::tuple<FieldTypes...>;
 };
 
 template<class ForwardIt, class T, class Compare, class Proj>
@@ -517,8 +501,7 @@ template<std::forward_iterator I, std::sentinel_for<I> S, class T,
          std::indirect_strict_weak_order<
              const T*,
              std::projected<I, Proj>> Comp = std::ranges::less>
-constexpr I
-binary_search(I first, S last, const T& value, Comp comp = {}, Proj proj = {})
+constexpr I binary_search(I first, S last, const T& value, Comp comp = {}, Proj proj = {})
 {
     first = lower_bound(first, last, value, comp, proj);
     if (!(first == last) && !(comp(value, proj(*first)))) {
@@ -550,7 +533,6 @@ class J<Src, Str> : public Src {
                         using FieldType = pfr::tuple_element_t<KeyIndexType::OriginalIndex, Src>;
                         FieldType & f = pfr::get<KeyIndexType::OriginalIndex>(static_cast<Src &>(*this));
                         return f.DeserialiseInternal(begin, end);
-
                     } else
                         return false;
                 }
@@ -562,16 +544,12 @@ public:
     using JSONValueKind = d::JSONValueKindEnumObject;
     static constexpr auto FieldName = Str;
 
-    J(const Src & other): Src(other) {
-
-    }
-
+    J(const Src & other): Src(other) {}
     J() = default;
 
     Src& operator = (const Src& other) {
         return static_cast<Src &>(*this) = other;
     }
-
 
     bool SerializeInternal(SerializerOutputCallbackConcept auto && clb) const {
         std::size_t last_index = 0;

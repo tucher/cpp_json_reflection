@@ -175,7 +175,6 @@ Object may contain garbage half-parsed data if deserialization fails, so use som
 - High-performance string to double convertion library, [fast_double_parser](https://github.com/lemire/fast_double_parser)
 
 ## TODO
-- Cleanup code, move most members to private
 - Compile-time options for max size if dynamic objects, preallocated containers size, etc..
 - Complete test suit, including fuzzing
 - Improve JSON skipping (use recursive calls with depth control)
