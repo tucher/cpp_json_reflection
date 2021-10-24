@@ -11,7 +11,7 @@
 #include <swl/variant.hpp>
 #include <algorithm>
 #include <fast_double_parser.h>
-
+#include <simdjson/to_chars.hpp>
 #include "string_ops.hpp"
 
 namespace simdjson {
@@ -126,6 +126,38 @@ class J {
 template <d::JSONBasicValue Src, d::ConstString Str>
 class J<Src, Str> {
     Src content;
+
+    //from 3party/simdjson/to_chars.cpp
+    char *to_chars(char *first, const char *last, double value) const {
+      static_cast<void>(last); // maybe unused - fix warning
+      bool negative = std::signbit(value);
+      if (negative) {
+        value = -value;
+        *first++ = '-';
+      }
+
+      if (value == 0) // +-0
+      {
+        *first++ = '0';
+        if(negative) {
+          *first++ = '.';
+          *first++ = '0';
+        }
+        return first;
+      }
+
+      int len = 0;
+      int decimal_exponent = 0;
+      simdjson::internal::dtoa_impl::grisu2(first, len, decimal_exponent, value);
+      // Format the buffer like printf("%.*g", prec, value)
+      constexpr int kMinExp = -4;
+      constexpr int kMaxExp = std::numeric_limits<double>::digits10;
+
+      return simdjson::internal::dtoa_impl::format_buffer(first, len, decimal_exponent, kMinExp,
+                                      kMaxExp);
+    }
+
+
 public:
     using JSONValueKind = d::JSONValueKindEnumPlain;
     static constexpr auto FieldName = Str;
@@ -183,22 +215,7 @@ public:
                 return false;
             }
             return true;
-        } else if constexpr(std::same_as<double, Src> || std::same_as<std::int64_t, Src>) {
-            if(std::isnan(content) || std::isinf(content)) {
-                char v[] = "0";
-                return clb(v, 1);
-            } else {
-                char buf[50];
-                char * endChar = simdjson::internal::to_chars(buf, buf + sizeof (buf), content);
-                auto s = endChar-buf;
-                if(endChar-buf == sizeof (buf)) {
-                    return false;
-                }
-                else {
-                    return clb(buf, s);
-                }
-            }
-        }else if constexpr(d::CustomMappable<Src>) {
+        } else if constexpr(d::CustomMappable<Src>) {
             if(char v[] = "\""; !clb(v, sizeof(v)-1)) {
                 return false;
             }
@@ -208,7 +225,22 @@ public:
                 return false;
             }
             return true;
-        }else
+        } else if constexpr(std::same_as<double, Src> || std::same_as<std::int64_t, Src>) {
+            if(std::isnan(content) || std::isinf(content)) {
+                char v[] = "0";
+                return clb(v, 1);
+            } else {
+                char buf[50];
+                char * endChar = to_chars(buf, buf + sizeof (buf), content);
+                auto s = endChar-buf;
+                if(endChar-buf == sizeof (buf)) {
+                    return false;
+                }
+                else {
+                    return clb(buf, s);
+                }
+            }
+        } else
             return false;
     }
 

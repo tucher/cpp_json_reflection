@@ -1,3 +1,5 @@
+#ifndef SIMDJSON_INTERNAL_TO_CHARS
+#define SIMDJSON_INTERNAL_TO_CHARS
 #include <cstring>
 #include <cstdint>
 #include <array>
@@ -906,44 +908,48 @@ inline char *format_buffer(char *buf, int len, int decimal_exponent,
 
 } // namespace dtoa_impl
 
-/*!
-The format of the resulting decimal representation is similar to printf's %g
-format. Returns an iterator pointing past-the-end of the decimal representation.
-@note The input number must be finite, i.e. NaN's and Inf's are not supported.
-@note The buffer must be large enough.
-@note The result is NOT null-terminated.
-*/
-char *to_chars(char *first, const char *last, double value) {
-  static_cast<void>(last); // maybe unused - fix warning
-  bool negative = std::signbit(value);
-  if (negative) {
-    value = -value;
-    *first++ = '-';
-  }
 
-  if (value == 0) // +-0
-  {
-    *first++ = '0';
-    // Make it look like a floating-point number (#362, #378)
-    if(negative) {
-      *first++ = '.';
-      *first++ = '0';
-    }
-    return first;
-  }
-  // Compute v = buffer * 10^decimal_exponent.
-  // The decimal digits are stored in the buffer, which needs to be interpreted
-  // as an unsigned decimal integer.
-  // len is the length of the buffer, i.e. the number of decimal digits.
-  int len = 0;
-  int decimal_exponent = 0;
-  dtoa_impl::grisu2(first, len, decimal_exponent, value);
-  // Format the buffer like printf("%.*g", prec, value)
-  constexpr int kMinExp = -4;
-  constexpr int kMaxExp = std::numeric_limits<double>::digits10;
+//            /*!
+//            The format of the resulting decimal representation is similar to printf's %g
+//            format. Returns an iterator pointing past-the-end of the decimal representation.
+//            @note The input number must be finite, i.e. NaN's and Inf's are not supported.
+//            @note The buffer must be large enough.
+//            @note The result is NOT null-terminated.
+//            */
+//            char *to_chars(char *first, const char *last, double value) {
+//              static_cast<void>(last); // maybe unused - fix warning
+//              bool negative = std::signbit(value);
+//              if (negative) {
+//                value = -value;
+//                *first++ = '-';
+//              }
 
-  return dtoa_impl::format_buffer(first, len, decimal_exponent, kMinExp,
-                                  kMaxExp);
-}
+//              if (value == 0) // +-0
+//              {
+//                *first++ = '0';
+//                // Make it look like a floating-point number (#362, #378)
+//                if(negative) {
+//                  *first++ = '.';
+//                  *first++ = '0';
+//                }
+//                return first;
+//              }
+//              // Compute v = buffer * 10^decimal_exponent.
+//              // The decimal digits are stored in the buffer, which needs to be interpreted
+//              // as an unsigned decimal integer.
+//              // len is the length of the buffer, i.e. the number of decimal digits.
+//              int len = 0;
+//              int decimal_exponent = 0;
+//              dtoa_impl::grisu2(first, len, decimal_exponent, value);
+//              // Format the buffer like printf("%.*g", prec, value)
+//              constexpr int kMinExp = -4;
+//              constexpr int kMaxExp = std::numeric_limits<double>::digits10;
+
+//              return dtoa_impl::format_buffer(first, len, decimal_exponent, kMinExp,
+//                                              kMaxExp);
+//            }
+
 } // namespace internal
 } // namespace simdjson
+
+#endif

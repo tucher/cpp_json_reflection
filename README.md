@@ -107,7 +107,7 @@ Object may contain garbage half-parsed data if deserialization fails, so use som
 
 ## Performance
 
-- No dymamic memory used by the library itself, so it is possible to use it in completely heap-free environment. Until all strings and arrays are modelled with fixed-sized containers, of course.
+- No dymamic memory used by the library itself, so it is possible to use it in completely heap-free environment. Until all strings and arrays are modelled with fixed-sized containers, of course. There are more low-level, zero-copy interfaces to Serialize/Deserialize for such operation mode.
 
 - No memory overhead:
 
