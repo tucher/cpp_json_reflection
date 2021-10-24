@@ -58,6 +58,19 @@ static_assert (std::is_same_v<JSONReflection::JSONValueKindEnumPlain, T::ItemTyp
 
 
 int canadaJsonPerfTest() {
+
+    Root initialisedRoot {{
+            .type{"some type"},
+            .features {{
+                {{
+                    .type{"f1"}
+                }},
+                {{
+                    .type{"f1"}
+                }}
+            }}
+        }};
+
     constexpr char inpconst[]{R"(
         {
             "type": "FeatureCollection",
@@ -116,7 +129,7 @@ int canadaJsonPerfTest() {
 
 //    }
 
-//    {
+    {
 //        std::size_t counter = 0;
 //        while(true) {
 //            counter = 0;
@@ -126,7 +139,7 @@ int canadaJsonPerfTest() {
 //            });
 
 //        }
-//    }
+    }
 
    {
         std::size_t counter = 0;

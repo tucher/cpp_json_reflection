@@ -1,11 +1,14 @@
+#include <iterator>
+
 namespace JSONReflection {
 
 template<typename InpIter>
-concept InputIteratorConcept =  std::forward_iterator<InpIter> && requires(InpIter inp) {
-    {*inp} -> std::convertible_to<char>;
-};
+concept InputIteratorConcept =  std::random_access_iterator<InpIter>
+&& (
+            std::same_as<typename std::iterator_traits<InpIter>::value_type, char>
+            );
 
-
+namespace d {
 inline bool isSpace(char a) {
     switch(a) {
     case 0x20:
@@ -160,5 +163,5 @@ InpIter findJsonKeyStringEnd(InpIter begin, const InpIter & end) {
 
     return end;
 }
-
+}
 }

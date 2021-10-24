@@ -33,7 +33,25 @@ struct InnerStruct3 {
     auto operator<=>(const InnerStruct3&) const = default;
 };
 
+struct CustomDateString {
+    auto operator<=>(const CustomDateString&) const = default;
+    bool SerializeInternal( JSONReflection::SerializerOutputCallbackConcept auto && clb) const {
+        char v[] = "2021-10-24T11:25:29Z";
+        return clb(v, sizeof(v)-1);
+    }
+
+    template<class InpIter> requires JSONReflection::InputIteratorConcept<InpIter>
+    bool DeserialiseInternal(InpIter begin, InpIter end) {
+        char v[] = "2021-10-24T11:25:29Z";
+        auto r = memcmp(v, & *begin, sizeof(v)-1);
+
+        return r == 0;
+    }
+};
+
+
 struct RootObject_ {
+    J<CustomDateString,        "date">        date;
     J<InnerStruct3,            "obj">          obj;
     J<int64_t,                 "a">            a;
     string                                      UNAVAILABLE_FOR_JSON;
@@ -42,6 +60,8 @@ struct RootObject_ {
     J<vector<char>,            "string_like">  string_like;
     J<vector<J<bool>>,        "primitive_array">  primitive_array;
     J<array<J<int64_t>, 5>,   "ints_array">  ints_array;
+
+    J<array<J<InnerStruct3>, 2>,            "obj">          fixed_sized_objs;
 
     auto operator<=>(const RootObject_&) const = default;
 };
@@ -53,10 +73,10 @@ using RootObject = J<RootObject_>;
 int canadaJsonPerfTest();
 int main()
 {
-
     return canadaJsonPerfTest();
     constexpr char inp3const[]{R"(
         {
+            "date":    "2021-10-24T11:25:29Z"
             "primitive_array": [true,false,true,false],
             "ints_array": [-2, -4, -6, -8, -10],
             "string_like": "i am std::vector, not std::string",
@@ -93,6 +113,7 @@ int main()
     char * b = &inp3.data()[0];
     char * e = &inp3.data()[inp3.size()];
 
+    t3.Deserialize(inp3);
     doPerformanceTest("Perf Test For t3.Deserialize", 2000000, [&t3, &b, &e]{
         bool res1 = t3.Deserialize(b, e);
         if(!res1) throw 1;
@@ -149,83 +170,6 @@ int main()
     std::cout << std::endl << std::endl;
 
 
-    InnerStruct ins1{std::string("fu"), 42};
-
-    J<InnerStruct> s;
-    s.name = "erfefr";
-    s.value = 810;
-
-    RootObject t2;
-    t2.a = 100500;
-    t2.obj._3level_nesting.inner_struct.name = "hello";
-
-    t2.values_array = {{{}, {}, {}}};
-
-    t2.values_array.push_back(s);
-
-    t2.values_array.push_back({std::string("tybtb"), 811});
-    t2.values_array.push_back({std::string("brbw er"), 814});
-    t2.values_array.push_back({std::string("qweqe"), 900});
-    t2.values_array.push_back({std::string(",[;.["), 100});
-
-    t2.params.p1 = array<char, 15> {{'i', 'n', 'n', 'e', 'r', 's', 't', 'r', 0}};
-    t2.params.p2 = NAN;
-    t2.params.p4 = true;
-    t2.params.p3 = 36.6;
-
-    t2.obj._3level_nesting.p1 = array<char, 15> {{'H', 'E', 'L', 'L', 'O', 0}};
-
-    t2.Serialize([](const char * d, std::size_t size){
-        std::cout << std::string(d, size);
-        return true;
-    });
-
-//    RootObject a1;
-//    RootObject_ a2;
-//    a2 = a1;
-//    a1 = a2;
-//    bool vmp = (a1 == a1);
-//    bool vmp2 = (a1 == a2);
-
-
-    J<int64_t> Jplain1;
-    Jplain1 ++;
-
-    auto opsChecker = []<class T>(T plain1) {
-        J<T> Jplain1;
-        bool b;
-        Jplain1 = plain1;
-        plain1 = Jplain1;
-        Jplain1 = Jplain1;
-
-        b = plain1 > Jplain1;
-        b = Jplain1 > plain1;
-        b = Jplain1 > Jplain1;
-
-        b = plain1 < Jplain1;
-        b = Jplain1 < plain1;
-        b = Jplain1 < Jplain1;
-
-        b = plain1 <= Jplain1;
-        b = Jplain1 <= plain1;
-        b = Jplain1 <= Jplain1;
-
-        b = plain1 >= Jplain1;
-        b = Jplain1 >= plain1;
-        b = Jplain1 >= Jplain1;
-
-        b = plain1 == Jplain1;
-        b = Jplain1 == plain1;
-        b = Jplain1 == Jplain1;
-
-        b = plain1 != Jplain1;
-        b = Jplain1 != plain1;
-        b = Jplain1 != Jplain1;
-    };
-
-    opsChecker(int64_t{});
-
-    opsChecker(RootObject_{});
 
     return 0;
 }
@@ -256,14 +200,14 @@ using FreeObject = J<FreeObject_>;
 static_assert (std::is_trivially_copyable_v<FreeObject>);
 
 
-static_assert (std::tuple_size_v< FreeObject::testTupleT> == 7);
-//static_assert (std::tuple_element_t<1, FreeObject::testTupleT>)
-static_assert (std::same_as<J<std::int64_t, "counter"  >, std::tuple_element_t<1, FreeObject::testTupleT2>> );
-static_assert (std::tuple_element_t<1, FreeObject::testTupleT>::skip == false );
-static_assert (std::tuple_element_t<2, FreeObject::testTupleT>::FieldName.Length == 11 );
-static_assert (std::tuple_element_t<3, FreeObject::testTupleT>::skip == true );
-static_assert (FreeObject::jsonFieldsCount == 4 );
-static_assert (FreeObject::sortedKeyIndexArrayTemp.size() == 4 );
+//static_assert (std::tuple_size_v< FreeObject::testTupleT> == 7);
+////static_assert (std::tuple_element_t<1, FreeObject::testTupleT>)
+//static_assert (std::same_as<J<std::int64_t, "counter"  >, std::tuple_element_t<1, FreeObject::testTupleT2>> );
+//static_assert (std::tuple_element_t<1, FreeObject::testTupleT>::skip == false );
+//static_assert (std::tuple_element_t<2, FreeObject::testTupleT>::FieldName.Length == 11 );
+//static_assert (std::tuple_element_t<3, FreeObject::testTupleT>::skip == true );
+//static_assert (FreeObject::jsonFieldsCount == 4 );
+//static_assert (FreeObject::sortedKeyIndexArrayTemp.size() == 4 );
 
 
 static constexpr auto indexGetter = []<class KeyIndexT>(KeyIndexT v) -> std::size_t {
@@ -286,8 +230,8 @@ static constexpr auto keyLengthGetter = []<class KeyIndexT>(KeyIndexT v) -> std:
 
     };
 
-static_assert (swl::visit(indexGetter, FreeObject::sortedKeyIndexArrayTemp[3]) == 2 );
-static_assert (swl::visit(keyLengthGetter, FreeObject::sortedKeyIndexArrayTemp[3]) == 11 );
+//static_assert (swl::visit(indexGetter, FreeObject::sortedKeyIndexArrayTemp[3]) == 2 );
+//static_assert (swl::visit(keyLengthGetter, FreeObject::sortedKeyIndexArrayTemp[3]) == 11 );
 
 
 FreeObject compileTimeInit{{
@@ -305,6 +249,7 @@ void f1(InnerStruct2 & s) {
     s.p3 = true;
 }
 
+
 void compileTimeTests() {
     J<bool> boolV{true};
     boolV = false;
@@ -319,13 +264,105 @@ void compileTimeTests() {
     RootObject t4 = t1;
 
 
+    RootObject t22;
+    t22.a = 100500;
+    t22.obj._3level_nesting.inner_struct.name = "hello";
+
+    t22.values_array = {{}, {}, {}};
+
+    t22.fixed_sized_objs = {
+        InnerStruct3{},
+        InnerStruct3{}
+    };
+    f1(t22.obj._3level_nesting);
+
+
+
+    InnerStruct ins1{std::string("fu"), 42};
+
+    J<InnerStruct> s;
+    s.name = "erfefr";
+    s.value = 810;
+
     RootObject t2;
     t2.a = 100500;
     t2.obj._3level_nesting.inner_struct.name = "hello";
 
-    t2.values_array = {{{}, {}, {}}};
+    t2.values_array = {{}, {}, {}};
+
+    t2.values_array.push_back(s);
+
+    t2.values_array.push_back({{std::string("tybtb"), 811}});
+    t2.values_array.push_back({{std::string("brbw er"), 814}});
+    t2.values_array.push_back({{std::string("qweqe"), 900}});
+    t2.values_array.push_back({{std::string(",[;.["), 100}});
+
+    t2.params.p1 = array<char, 15> {{'i', 'n', 'n', 'e', 'r', 's', 't', 'r', 0}};
+    t2.params.p2 = NAN;
+    t2.params.p4 = true;
+    t2.params.p3 = 36.6;
+
+    t2.obj._3level_nesting.p1 = array<char, 15> {{'H', 'E', 'L', 'L', 'O', 0}};
+
+    t2.Serialize([](const char * d, std::size_t size){
+        std::cout << std::string(d, size);
+        return true;
+    });
+
+    t2.values_array.push_back(InnerStruct{});
+//    RootObject a1;
+//    RootObject_ a2;
+//    a2 = a1;
+//    a1 = a2;
+//    bool vmp = (a1 == a1);
+//    bool vmp2 = (a1 == a2);
+
+    list<InnerStruct> l;
+    l.push_back(J<InnerStruct>{});
+    J<int64_t> Jplain1;
+    Jplain1 ++;
+
+    auto opsChecker = []<class T>(T plain1) {
+        J<T> Jplain1;
+        bool b;
+        Jplain1 = plain1;
+        plain1 = Jplain1;
+        Jplain1 = Jplain1;
+        J<T> i1(Jplain1);
+        J<T> i2(plain1);
+        T i3(Jplain1);
 
 
-    f1(t2.obj._3level_nesting);
+        b = plain1 > Jplain1;
+        b = Jplain1 > plain1;
+        b = Jplain1 > Jplain1;
 
+        b = plain1 < Jplain1;
+        b = Jplain1 < plain1;
+        b = Jplain1 < Jplain1;
+
+        b = plain1 <= Jplain1;
+        b = Jplain1 <= plain1;
+        b = Jplain1 <= Jplain1;
+
+        b = plain1 >= Jplain1;
+        b = Jplain1 >= plain1;
+        b = Jplain1 >= Jplain1;
+
+        b = plain1 == Jplain1;
+        b = Jplain1 == plain1;
+        b = Jplain1 == Jplain1;
+
+        b = plain1 != Jplain1;
+        b = Jplain1 != plain1;
+        b = Jplain1 != Jplain1;
+    };
+
+    opsChecker(int64_t{});
+
+    opsChecker(RootObject_{});
+    opsChecker(list<J<InnerStruct>>{});
+
+
+    static_assert (JSONReflection::d::JSONBasicValue<CustomDateString>);
 }

@@ -54,14 +54,14 @@ For example, there is GeoJSON data, [canada.json](https://github.com/boostorg/js
             //all done!
         }
 
-        root.Serialize([](const char * d, std::size_t size){
-            //data is feeded there;
-            return true;
-        });
+        string output;
+        if(root.Serialize(output)) {
+            //all done!
+        }
     }
 
 So:
-- JSON object are plain C++ structs. Fields order doesn't matter for successful parsing, excess JSON data is silently skipped.
+- JSON object are plain C++ structs. Fields order doesn't matter for successful parsing, excess JSON data is silently skipped. Fields order is preserved in serialized JSON output.
 - JSON array is stl-compatible container, including fixed-sized, like ```Point = std::array<T, 2>```, which models  geo coordinates in our example. Heterogenous JSON arrays are not supported.
 - JSON plain value is ```bool```, ```double```, ```std::int64_t``` or string-like. String-like means stl-compatible [contigeous container](https://en.cppreference.com/w/cpp/named_req/ContiguousContainer) with ```char```s, including fixed-sized, like ```std::array<char, 20>```. 
 - JSON ```null``` value doesn't make much sense if we are in strongly-typed world, and is not supported.
@@ -132,6 +132,38 @@ Object may contain garbage half-parsed data if deserialization fails, so use som
                 ...
             >>
         >> deeplyNestedArrays;
+- It is fine to have non-static fields inside ```J```-wrapped structs which model JSON objects:
+        
+        struct Obj_ {
+            int a;
+            J<bool, "flag"> flag;
+        };
+        using Obj = J<Obj_>;
+
+    Such fields are just ignored. 
+
+- Custom string parsing (to implement date support, for example). Add a pair of serialize/deserialize methods to your class, then use it with  ```J``` wrapper, as usual:
+
+        struct CustomDateString {
+
+            bool SerializeInternal( JSONReflection::SerializerOutputCallbackConcept auto && clb) const {
+                char v[] = "2021-10-24T11:25:29Z";
+                return clb(v, sizeof(v)-1);
+            }
+
+            template<class InpIter> 
+                requires JSONReflection::InputIteratorConcept<InpIter>
+            bool DeserialiseInternal(InpIter begin, InpIter end) {
+                char v[] = "2021-10-24T11:25:29Z";
+                return 0 == memcmp(v, & *begin, sizeof(v)-1);
+            }
+        };
+        struct Root_ {
+            J<CustomDateString, "date">      type;
+            ...
+        };
+        using Root = J<Root_>;
+
 
 
 ## Dependencies
@@ -144,9 +176,9 @@ Object may contain garbage half-parsed data if deserialization fails, so use som
 
 ## TODO
 - Cleanup code, move most members to private
-- Work on complete transparency of ```J```-wrapped objects
 - Compile-time options for max size if dynamic objects, preallocated containers size, etc..
 - Complete test suit, including fuzzing
-- Add support of custom serializers/deserializers
-- Improve JSON skipping
-- Cannot construct J<T> from T
+- Improve JSON skipping (use recursive calls with depth control)
+- Error handling
+- Option to fail on excess keys
+- Add auto escape for strings and ```CustomMappable``` members

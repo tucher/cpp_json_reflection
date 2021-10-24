@@ -19,12 +19,24 @@ namespace internal {
 char *to_chars(char *first, const char *last, double value);
 }
 }
+
 namespace JSONReflection {
 
+template <typename T>
+concept SerializerOutputCallbackConcept = requires (T clb) {
+    {clb(std::declval<const char*>(), std::declval<std::size_t>())} -> std::convertible_to<bool>;
+};
 
-template <typename CharT, std::size_t N> struct JSONFieldNameStringLiteral
+
+
+namespace  d {
+
+using SerializerStubT = bool (*)(const char *data, std::size_t size);
+static_assert (SerializerOutputCallbackConcept<SerializerStubT>);
+
+template <typename CharT, std::size_t N> struct ConstString
 {
-    constexpr JSONFieldNameStringLiteral(const CharT (&foo)[N+1]) {
+    constexpr ConstString(const CharT (&foo)[N+1]) {
         std::copy_n(foo, N+1, m_data);
     }
     CharT m_data[N+1];
@@ -34,9 +46,9 @@ template <typename CharT, std::size_t N> struct JSONFieldNameStringLiteral
         return {&m_data[0], &m_data[Length]};
     }
 };
-
 template <typename CharT, std::size_t N>
-JSONFieldNameStringLiteral(const CharT (&str)[N])->JSONFieldNameStringLiteral<CharT, N-1>;
+ConstString(const CharT (&str)[N])->ConstString<CharT, N-1>;
+
 
 struct JSONValueKindEnumPlain {};
 struct JSONValueKindEnumObject {};
@@ -76,19 +88,23 @@ concept ReserveCapable = DynamicContainerTypeConcept<T> && requires (T  v) {
 template <typename T>
 concept DynamicStringTypeConcept = StringTypeConcept<T> && DynamicContainerTypeConcept<T>;
 
-template <typename T>
-concept SerializerOutputCallbackConcept = requires (T clb) {
-    {clb(std::declval<const char*>(), std::declval<std::size_t>())} -> std::convertible_to<bool>;
-};
-
-template <typename T>
-concept SerializerOutputBufferConcept = requires (T  buf) {
-    { T::Size  } -> std::convertible_to<std::size_t>;
-    { buf.data } -> std::same_as<char *>;
+template<typename T>
+concept CustomMappable =
+        !JSONWrappedValue<T>
+        && requires (T val, const T&constVal) {
+    {constVal.SerializeInternal(std::declval<SerializerStubT>())} -> std::same_as<bool>; //??
+    {val.DeserialiseInternal(std::declval<char*>(), std::declval<char*>())} -> std::same_as<bool>; //??
 };
 
 template<typename T>
-concept JSONBasicValue = std::same_as<T, bool> || std::same_as<T, double>|| std::convertible_to<T, std::int64_t> || StringTypeConcept<T>;
+concept JSONBasicValue =
+        !JSONWrappedValue<T> && (
+        std::same_as<T, bool>
+    || std::same_as<T, double>
+    || (std::convertible_to<T, std::int64_t> && std::convertible_to<std::int64_t, T>)
+    || StringTypeConcept<T>
+    || CustomMappable<T>
+            );
 
 template<typename T>
 concept JSONArrayValue = std::ranges::range<T> && !JSONBasicValue<T> && JSONWrappedValue<typename T::value_type>;
@@ -98,22 +114,24 @@ concept JSONObjectValue = std::is_class_v<T> && !std::ranges::range<T> && !JSONA
 
 template<typename T>
 concept JSONWrapable = JSONBasicValue<T> || JSONArrayValue<T> || JSONObjectValue<T>;
-template <class Src, JSONFieldNameStringLiteral Str = "">
+
+}
+template <class Src, d::ConstString Str = "">
 class J {
     template <class... T>
     static constexpr bool always_false = false;
     static_assert(always_false<Src>, "JSONReflection: Cannot represent type in terms of JSON. See next compiler messages for details");
-    static_assert (JSONWrapable<Src>);
+    static_assert (d::JSONWrapable<Src>);
 };
 
 
-template <JSONBasicValue Src, JSONFieldNameStringLiteral Str>
+template <d::JSONBasicValue Src, d::ConstString Str>
 class J<Src, Str> {
 
     Src content;
 public:
+    using JSONValueKind = d::JSONValueKindEnumPlain;
     static constexpr auto FieldName = Str;
-    using JSONValueKind = JSONValueKindEnumPlain;
 
     operator Src&() {
         return content;
@@ -135,17 +153,16 @@ public:
     auto operator<=>(const Src& rhs) const {
         return content <=> rhs;
     }
-//    auto operator==(const J& rhs) const {
-//        return content == rhs.content;
-//    }
+
     auto operator==(const Src& rhs) const {
         return content == rhs;
     }
+
     auto operator!=(const Src& rhs) const {
         return content != rhs;
     }
 
-    bool Serialize(SerializerOutputCallbackConcept auto && clb) const {
+    bool SerializeInternal(SerializerOutputCallbackConcept auto && clb) const {
         if constexpr(std::same_as<bool, Src>) {
             if(content) {
                 char v[] = "true";
@@ -155,11 +172,11 @@ public:
                 char v[] = "false";
                 return clb(v, sizeof(v)-1);
             }
-        } else if constexpr(StringTypeConcept<Src>) {
+        } else if constexpr(d::StringTypeConcept<Src>) {
             if(char v[] = "\""; !clb(v, sizeof(v)-1)) {
                 return false;
             }
-            if constexpr(DynamicStringTypeConcept<Src>) {
+            if constexpr(d::DynamicStringTypeConcept<Src>) {
                 if(!clb(reinterpret_cast<const char*>(content.data()), content.size() * sizeof (typename Src::value_type))) {
                     return false;
                 }
@@ -189,13 +206,23 @@ public:
                     return clb(buf, s);
                 }
             }
-        } else
+        }else if constexpr(d::CustomMappable<Src>) {
+            if(char v[] = "\""; !clb(v, sizeof(v)-1)) {
+                return false;
+            }
+            if(!content.SerializeInternal(std::forward<std::decay_t<decltype(clb)>>(clb)))
+                return false;
+            if(char v[] = "\""; !clb(v, sizeof(v)-1)) {
+                return false;
+            }
             return true;
+        }else
+            return false;
     }
 
     template<class InpIter> requires InputIteratorConcept<InpIter>
     bool DeserialiseInternal(InpIter & begin, const InpIter & end) {
-        if(!skipWhiteSpace(begin, end)) return false;
+        if(!d::skipWhiteSpace(begin, end)) return false;
 
         if constexpr(std::same_as<bool, Src>) {
             char fc = *begin;
@@ -211,7 +238,7 @@ public:
                     }
                     begin ++;
                 }
-                if(!isPlainEnd(*begin)) return false;
+                if(!d::isPlainEnd(*begin)) return false;
                 content = true;
                 return true;
             }
@@ -226,17 +253,17 @@ public:
                     }
                     begin ++;
                 }
-                if(!isPlainEnd(*begin)) return false;
+                if(!d::isPlainEnd(*begin)) return false;
                 content = false;
                 return true;
             } else
                 return false;
-        } else if constexpr(StringTypeConcept<Src>) {
-            if(!skipWhiteSpaceTill(begin, end, '"'))
+        } else if constexpr(d::StringTypeConcept<Src>) {
+            if(!d::skipWhiteSpaceTill(begin, end, '"'))
                 return false;
 
             auto strBegin = begin;
-            auto strEnd = findJsonKeyStringEnd(begin, end);
+            auto strEnd = d::findJsonKeyStringEnd(begin, end);
             if(strEnd == end)
                 return false;
             begin = strEnd;
@@ -244,7 +271,7 @@ public:
             if(begin == end)
                 return false;
 
-            if constexpr (DynamicStringTypeConcept<Src>) { //dynamic
+            if constexpr (d::DynamicStringTypeConcept<Src>) { //dynamic
                 content.clear();
                 while(strBegin != strEnd) {
                     content.push_back(*strBegin);
@@ -267,32 +294,10 @@ public:
             }
 
             return true;
-//        } else if constexpr(std::same_as<double, Src> || std::same_as<std::int64_t, Src>) {
-//            InpIter bg = begin;
-//            while(!isPlainEnd(*begin) &&begin != end ) {
-//                begin ++;
-//                if(begin - bg > 50) {
-//                    return false;
-//                }
-//            }
-//            if(begin == end) return false;
-//            char rst = *begin;
-//            *begin = 0;
-//            double x;
-//            if(fast_double_parser::parse_number(& *bg, &x) != nullptr) {
-//                content = x;
-//                *begin = rst;
-//                return true;
-//            }
-//            *begin = rst;
-//            return false;
-//        } else {
-//            return false;
-//        }
         } else if constexpr(std::same_as<double, Src> || std::same_as<std::int64_t, Src>) {
              char buf[40];
              std::size_t index = 0;
-             while(!isPlainEnd(*begin)) {
+             while(!d::isPlainEnd(*begin)) {
                  if(begin == end ) [[unlikely]] {
                      break;
                  }
@@ -310,29 +315,49 @@ public:
                  return true;
              }
              return false;
+         }else if constexpr(d::CustomMappable<Src>) {
+            if(!d::skipWhiteSpaceTill(begin, end, '"'))
+                return false;
+
+            auto strBegin = begin;
+            auto strEnd = d::findJsonKeyStringEnd(begin, end);
+            if(strEnd == end)
+                return false;
+            begin = strEnd;
+            begin ++;
+            if(begin == end)
+                return false;
+            return content.DeserialiseInternal(strBegin, strEnd);
          } else {
              return false;
          }
     }
 };
 
-template <JSONArrayValue Src, JSONFieldNameStringLiteral Str>
+template <d::JSONArrayValue Src, d::ConstString Str>
 class J<Src, Str> : public Src{
-
-public:
     using ItemType = typename Src::value_type;
-
+public:
+    using JSONValueKind = d::JSONValueKindEnumArray;
     static constexpr auto FieldName = Str;
 
-    using JSONValueKind = JSONValueKindEnumArray;
-    bool Serialize(SerializerOutputCallbackConcept auto && clb) const {
+    Src& operator = (const Src& other) {
+        return static_cast<Src &>(*this) = other;
+    }
+    J() = default;
+
+    J(const Src & other): Src(other) {}
+
+
+
+    bool SerializeInternal(SerializerOutputCallbackConcept auto && clb) const {
         if(char v[] = "["; !clb(v, sizeof(v)-1)) {
             return false;
         }
         std::size_t last = static_cast<const Src&>(*this).size()-1;
         std::size_t i = 0;
         for(const auto & item: static_cast<const Src&>(*this)) {
-            if(!item.Serialize(std::forward<std::decay_t<decltype(clb)>>(clb))) {
+            if(!item.SerializeInternal(std::forward<std::decay_t<decltype(clb)>>(clb))) {
                 return false;
             }
             if(i != last) {
@@ -349,15 +374,15 @@ public:
 
     template<class InpIter> requires InputIteratorConcept<InpIter>
     bool DeserialiseInternal(InpIter & begin, const InpIter & end) {
-        if(!skipWhiteSpaceTill(begin, end, '[')) return false;
-        if constexpr (DynamicContainerTypeConcept<Src>) {
+        if(!d::skipWhiteSpaceTill(begin, end, '[')) return false;
+        if constexpr (d::DynamicContainerTypeConcept<Src>) {
             static_cast<Src&>(*this).clear();
-            if constexpr (ReserveCapable<Src>) {
+            if constexpr (d::ReserveCapable<Src>) {
 //                static_cast<Src&>(*this).reserve(1000); //TODO via options
             }
             ItemType newItem;
             while(begin != end) {
-                if(!skipWhiteSpace(begin, end)) {
+                if(!d::skipWhiteSpace(begin, end)) {
                     return false;
                 }
                 if(*begin == ']') {
@@ -371,7 +396,7 @@ public:
                 }
                 static_cast<Src&>(*this).push_back(newItem);
 
-                if(!skipWhiteSpace(begin, end)) {
+                if(!d::skipWhiteSpace(begin, end)) {
                     return false;
                 }
                 if(*begin == ',') {
@@ -382,7 +407,7 @@ public:
             int counter = 0;
 
             while(begin != end) {
-                if(!skipWhiteSpace(begin, end)) {
+                if(!d::skipWhiteSpace(begin, end)) {
                     return false;
                 }
                 if(*begin == ']') {
@@ -400,7 +425,7 @@ public:
                 }
                 counter ++;
 
-                if(!skipWhiteSpace(begin, end)) {
+                if(!d::skipWhiteSpace(begin, end)) {
                     return false;
                 }
                 if(*begin == ',') {
@@ -408,15 +433,16 @@ public:
                 }
             }
         }
-
         return false;
     }
 };
 
+namespace d {
+
 template <std::size_t Index, class PotentialJsonFieldT> struct KeyIndexEntry {
     static constexpr bool skip = true;
 };
-template <std::size_t Index, class InnerFieldType, JSONFieldNameStringLiteral KeyString>
+template <std::size_t Index, class InnerFieldType, d::ConstString KeyString>
 struct KeyIndexEntry<Index, J<InnerFieldType, KeyString>>{
     static constexpr bool skip = false;
     static constexpr auto FieldName =  KeyString;
@@ -501,17 +527,56 @@ binary_search(I first, S last, const T& value, Comp comp = {}, Proj proj = {})
         return last;
     }
 }
+}
 
-template <JSONObjectValue Src, JSONFieldNameStringLiteral Str>
+template <d::JSONObjectValue Src, d::ConstString Str>
 class J<Src, Str> : public Src {
+    using KeyIndexBuilderT = d::KeyIndexBuilder<decltype (pfr::structure_to_tuple(std::declval<Src>())), std::make_index_sequence<pfr::tuple_size_v<Src>>>;
+    static constexpr auto sortedKeyIndexArray = KeyIndexBuilderT::sortedKeyIndexArray;
+
+    template<class InpIter> requires InputIteratorConcept<InpIter>
+    bool DeserialiseField(const InpIter & keyBegin, const InpIter & keyEnd, InpIter &begin, const InpIter & end) {
+        std::string_view keySV{keyBegin, keyEnd};
+
+        auto foundVarIt = d::binary_search(sortedKeyIndexArray.begin(), sortedKeyIndexArray.end(), keySV, std::ranges::less{}, typename KeyIndexBuilderT::ProjKeyIndexVariantToStringView{});
+
+        if(foundVarIt == sortedKeyIndexArray.end()) {
+            return d::skipJsonValue(begin, end);
+        }
+
+        bool deserRes = swl::visit(
+                [this, &begin, &end]<class KeyIndexType>(KeyIndexType keyIndex) -> bool{
+                    if constexpr(KeyIndexType::skip == false) {
+                        using FieldType = pfr::tuple_element_t<KeyIndexType::OriginalIndex, Src>;
+                        FieldType & f = pfr::get<KeyIndexType::OriginalIndex>(static_cast<Src &>(*this));
+                        return f.DeserialiseInternal(begin, end);
+
+                    } else
+                        return false;
+                }
+        , *foundVarIt);
+
+        return deserRes;
+    }
 public:
-    using JSONValueKind = JSONValueKindEnumObject;
+    using JSONValueKind = d::JSONValueKindEnumObject;
     static constexpr auto FieldName = Str;
 
-    bool Serialize(SerializerOutputCallbackConcept auto && clb) const {
+    J(const Src & other): Src(other) {
+
+    }
+
+    J() = default;
+
+    Src& operator = (const Src& other) {
+        return static_cast<Src &>(*this) = other;
+    }
+
+
+    bool SerializeInternal(SerializerOutputCallbackConcept auto && clb) const {
         std::size_t last_index = 0;
         pfr::for_each_field(static_cast<const Src &>(*this), [&last_index]<class T>(const T & val, std::size_t index){
-            if constexpr(JSONWrappedValue<T>) { last_index = index;}
+            if constexpr(d::JSONWrappedValue<T>) { last_index = index;}
         });
         if(char v[] = "{"; !clb(v, sizeof(v)-1)) {
             return false;
@@ -519,7 +584,7 @@ public:
         bool r = true;
         auto visitor = [&clb, last_index, &r]<class T>(const T & val, std::size_t index) {
             if(!r) return;
-            if constexpr(JSONWrappedValue<T>) {
+            if constexpr(d::JSONWrappedValue<T>) {
                 if(char v[] = "\""; !clb(v, sizeof(v)-1)) {
                     r = false;
                     return;
@@ -532,8 +597,7 @@ public:
                     r = false;
                     return;
                 }
-
-                if(!val.Serialize(std::forward<std::decay_t<decltype(clb)>>(clb))) {
+                if(!val.SerializeInternal(std::forward<std::decay_t<decltype(clb)>>(clb))) {
                     r = false;
                     return;
                 }
@@ -552,39 +616,19 @@ public:
         }
         return true;
     }
-private:
 
-    using KeyIndexBuilderT = KeyIndexBuilder<decltype (pfr::structure_to_tuple(std::declval<Src>())), std::make_index_sequence<pfr::tuple_size_v<Src>>>;
-    static constexpr auto sortedKeyIndexArray = KeyIndexBuilderT::sortedKeyIndexArray;
-
-
-public:
-
-
-    template<class InpIter> requires InputIteratorConcept<InpIter>
-    bool DeserialiseField(const InpIter & keyBegin, const InpIter & keyEnd, InpIter &begin, const InpIter & end) {
-        std::string_view keySV{keyBegin, keyEnd};
-
-        auto foundVarIt = binary_search(sortedKeyIndexArray.begin(), sortedKeyIndexArray.end(), keySV, std::ranges::less{}, typename KeyIndexBuilderT::ProjKeyIndexVariantToStringView{});
-
-        if(foundVarIt == sortedKeyIndexArray.end()) {
-            return skipJsonValue(begin, end);
-        }
-
-        bool deserRes = swl::visit(
-                [this, &begin, &end]<class KeyIndexType>(KeyIndexType keyIndex) -> bool{
-                    if constexpr(KeyIndexType::skip == false) {
-                        using FieldType = pfr::tuple_element_t<KeyIndexType::OriginalIndex, Src>;
-                        FieldType & f = pfr::get<KeyIndexType::OriginalIndex>(static_cast<Src &>(*this));
-                        return f.DeserialiseInternal(begin, end);
-
-                    } else
-                        return false;
-                }
-        , *foundVarIt);
-
-        return deserRes;
+    template <class T>
+        requires (!SerializerOutputCallbackConcept<T>)
+    bool Serialize(T & container) const {
+        return SerializeInternal([&container](const char * data, std::size_t size){
+            container.insert(container.end(), data, data + size);
+            return true;
+        });
     }
+    bool Serialize(SerializerOutputCallbackConcept auto && clb) const {
+        return SerializeInternal(std::forward<std::decay_t<decltype(clb)>>(clb));
+    }
+
     template<class InpIter> requires InputIteratorConcept<InpIter>
     bool Deserialize(InpIter begin, const InpIter & end) {
         return DeserialiseInternal(begin, end);
@@ -598,34 +642,34 @@ public:
 
     template<class InpIter> requires InputIteratorConcept<InpIter>
     bool DeserialiseInternal(InpIter & begin, const InpIter & end) {
-        if(!skipWhiteSpaceTill(begin, end, '{')) return false;
+        if(!d::skipWhiteSpaceTill(begin, end, '{')) return false;
         while(begin != end) {
-            if(!skipWhiteSpace(begin, end))
+            if(!d::skipWhiteSpace(begin, end))
                 return false;
             if(*begin == '}') {
                 begin ++;
                 return true;
             }
 
-            if(!skipWhiteSpaceTill(begin, end, '"'))
+            if(!d::skipWhiteSpaceTill(begin, end, '"'))
                 return false;
             InpIter keyBegin = begin;
 
-            InpIter keyEnd = findJsonKeyStringEnd(keyBegin, end);
+            InpIter keyEnd = d::findJsonKeyStringEnd(keyBegin, end);
             if(keyEnd == end)
                 return false;
             begin = keyEnd;
             begin ++;
             if(begin == end)
                 return false;
-            if(!skipWhiteSpaceTill(begin, end, ':'))
+            if(!d::skipWhiteSpaceTill(begin, end, ':'))
                 return false;
 
             bool ok = DeserialiseField(keyBegin, keyEnd, begin, end);
             if(!ok)
                 return false;
 
-            if(!skipWhiteSpace(begin, end))
+            if(!d::skipWhiteSpace(begin, end))
                 return false;
             if(*begin == ',') {
                 begin ++;
@@ -634,21 +678,6 @@ public:
 
         return false;
     }
-
-    operator Src&() {
-        return static_cast<Src &>(*this);
-    }
-
-    Src& operator = (const Src& other) {
-        return static_cast<Src &>(*this) = other;
-    }
-
-    //TODO remove later
-    using testTupleT = typename KeyIndexBuilderT::testTupleT;
-    using testTupleT2 = typename KeyIndexBuilderT::testTupleT2;
-    static constexpr auto jsonFieldsCount = KeyIndexBuilderT::jsonFieldsCount;
-    static constexpr auto sortedKeyIndexArrayTemp = KeyIndexBuilderT::sortedKeyIndexArray;
-
 };
 
 
