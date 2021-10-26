@@ -835,14 +835,14 @@ public:
 
     template<class InpIter> requires InputIteratorConcept<InpIter>
     DeserializationResult Deserialize(InpIter begin, const InpIter & end) {
-        DeserializationResult ctx;
+        DeserializationResult ctx(end-begin);
         bool ret = DeserialiseInternal(begin, end, ctx);
         return ctx;
     }
 
     template<class ContainterT> requires std::ranges::range<ContainterT>
     DeserializationResult Deserialize(const ContainterT & c) {
-        DeserializationResult ctx;
+        DeserializationResult ctx(c.size());
         auto b = c.begin();
         bool ret =  DeserialiseInternal(b, c.end(), ctx);
         return ctx;

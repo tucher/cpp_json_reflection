@@ -24,7 +24,11 @@ public:
 private:
     ErrorT error = NO_ERROR;
     std::size_t offsetFromEnd = 0;
+    std::size_t totalSize = 0;
 public:
+    DeserializationResult(std::size_t s) {
+        totalSize = s;
+    }
     void setError(ErrorT err, std::size_t offs) {
         error = err;
         offsetFromEnd = offs;
@@ -33,14 +37,8 @@ public:
         return error == NO_ERROR;
     }
 
-    template<class InpIter> requires InputIteratorConcept<InpIter>
-    auto getErrorOffset(InpIter begin, const InpIter & end) {
-        return (end-begin)-offsetFromEnd;
-    }
-
-    template<class ContainterT> requires std::ranges::range<ContainterT>
-    auto getErrorOffset(const ContainterT & c) {
-        return c.size()-offsetFromEnd;
+    std::size_t getErrorOffset() {
+        return totalSize-offsetFromEnd;
     }
 };
 
