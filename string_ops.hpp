@@ -98,7 +98,7 @@ bool outputEscapedString(const char *data, std::size_t size, ClbT && clb) {
         }
         default:
         {
-            if(segStart[segSize] < 32) [[unlikely]] {
+            if(std::uint8_t(segStart[segSize]) < 32) [[unlikely]] {
                 return false;
             }
             segSize ++;

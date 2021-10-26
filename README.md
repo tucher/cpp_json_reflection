@@ -116,7 +116,7 @@ Object may contain garbage half-parsed data if deserialization fails, so use som
 
     Key strings for user type T are ```static constexpr``` and stored inside ```J<T>``` type
 
-- What about speed, on my MacbookPro 2014 laptop it is about 500 megabytes/s for canada.json parsing and 200 for serializing when compiled with GCC 11. There is a comparison chart [here](http://vinniefalco.github.io/doc/json/json/benchmarks.html#json.benchmarks.parse_numbers_json), so we are somewhere near the middle-top.
+- What about speed, on my MacbookPro 2014 laptop it is about 500 megabytes/s for canada.json parsing and 200 for serializing when compiled with GCC 11. For Twitter data (commonly used for benchmarks) it is about 500mb/s for read and write. There is a comparison chart [here](http://vinniefalco.github.io/doc/json/json/benchmarks.html#json.benchmarks.parse_numbers_json), so we are somewhere near the middle-top.
 
 - And let's don't talk about binary size and compilation time:) More tests needed, but for relatively small models it looks "ok".
 
@@ -189,3 +189,4 @@ Object may contain garbage half-parsed data if deserialization fails, so use som
 - Option to fail on excess keys
 - String escape/unescape
 - Recursive structures?
+- Prettyfying?
