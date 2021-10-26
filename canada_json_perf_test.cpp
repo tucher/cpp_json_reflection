@@ -8,7 +8,7 @@
 using JSONReflection::J;
 using std::vector, std::list, std::array, std::string, std::int64_t;
 
-
+namespace Geo {
 using Point = array<J<double>, 2>;
 using PolygonRing = vector<J<Point>>;
 using PolygonCoordinates = vector<J<PolygonRing>>;
@@ -43,13 +43,13 @@ J<list<
     >>
 >, "coordinates"> coordinates;
 using T = decltype(coordinates);
-
-static_assert (JSONReflection::JSONWrappedValue<T>);
-static_assert (std::is_same_v<JSONReflection::JSONValueKindEnumArray, T::JSONValueKind>);
-static_assert (JSONReflection::JSONWrappedValue<T::ItemType>);
-static_assert (JSONReflection::JSONWrappedValue<T::ItemType::ItemType>);
-static_assert (JSONReflection::JSONWrappedValue<T::ItemType::ItemType::ItemType>);
-static_assert (std::is_same_v<JSONReflection::JSONValueKindEnumPlain, T::ItemType::ItemType::ItemType::JSONValueKind>);
+}
+//static_assert (JSONReflection::JSONWrappedValue<T>);
+//static_assert (std::is_same_v<JSONReflection::JSONValueKindEnumArray, T::JSONValueKind>);
+//static_assert (JSONReflection::JSONWrappedValue<T::ItemType>);
+//static_assert (JSONReflection::JSONWrappedValue<T::ItemType::ItemType>);
+//static_assert (JSONReflection::JSONWrappedValue<T::ItemType::ItemType::ItemType>);
+//static_assert (std::is_same_v<JSONReflection::JSONValueKindEnumPlain, T::ItemType::ItemType::ItemType::JSONValueKind>);
 
 //static_assert (std::is_trivially_assignable_v<Root, Root_>);
 //static_assert (std::is_assignable_v<Root, Root_>);
@@ -59,7 +59,7 @@ static_assert (std::is_same_v<JSONReflection::JSONValueKindEnumPlain, T::ItemTyp
 
 int canadaJsonPerfTest() {
 
-    Root initialisedRoot {{
+    Geo::Root initialisedRoot {{
             .type{"some type"},
             .features {{
                 {{
@@ -117,7 +117,7 @@ int canadaJsonPerfTest() {
     std::cout << "inp.size " << inp.size() << std::endl;
     char * b = &inp.data()[0];
     char * e = &inp.data()[inp.size()];
-    Root root;
+    Geo::Root root;
     bool res;
 
     res = root.Deserialize(b, e);

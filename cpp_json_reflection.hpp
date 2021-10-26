@@ -14,11 +14,6 @@
 #include <simdjson/to_chars.hpp>
 #include "string_ops.hpp"
 
-namespace simdjson {
-namespace internal {
-char *to_chars(char *first, const char *last, double value);
-}
-}
 
 namespace JSONReflection {
 
@@ -28,8 +23,9 @@ concept SerializerOutputCallbackConcept = requires (T clb) {
 };
 
 
-namespace  d {
 
+namespace  d {
+constexpr std::uint8_t SkippingMaxNestingLevel = 32;
 using SerializerStubT = bool (*)(const char *data, std::size_t size);
 static_assert (SerializerOutputCallbackConcept<SerializerStubT>);
 
@@ -52,13 +48,15 @@ ConstString(const CharT (&str)[N])->ConstString<CharT, N-1>;
 struct JSONValueKindEnumPlain {};
 struct JSONValueKindEnumObject {};
 struct JSONValueKindEnumArray {};
+struct JSONValueKindEnumMap {};
 
 template<typename T>
-concept JSONWrappedValue = requires {
+concept JSONWrappedValueCompatible = requires {
         typename T::JSONValueKind;
         requires std::is_same_v<typename T::JSONValueKind, JSONValueKindEnumPlain>
         || std::is_same_v<typename T::JSONValueKind, JSONValueKindEnumObject>
-        || std::is_same_v<typename T::JSONValueKind, JSONValueKindEnumArray>;
+        || std::is_same_v<typename T::JSONValueKind, JSONValueKindEnumArray>
+        || std::is_same_v<typename T::JSONValueKind, JSONValueKindEnumMap>;
         };
 
 template <typename T>
@@ -68,7 +66,7 @@ concept StringTypeConcept = requires (T v) {
     requires std::is_integral_v<std::remove_pointer_t<decltype(v.data())>>;
     {v.size()} -> std::convertible_to<std::size_t>;
     {v[0]} -> std::convertible_to<typename T::value_type>;
-    requires !JSONWrappedValue<typename T::value_type>;
+    requires !JSONWrappedValueCompatible<typename T::value_type>;
 };
 
 template <typename T>
@@ -88,7 +86,7 @@ concept DynamicStringTypeConcept = StringTypeConcept<T> && DynamicContainerTypeC
 
 template<typename T>
 concept CustomMappable =
-        !JSONWrappedValue<T>
+        !JSONWrappedValueCompatible<T>
         && requires (T val, const T&constVal) {
     {constVal.SerializeInternal(std::declval<SerializerStubT>())} -> std::same_as<bool>; //??
     {val.DeserialiseInternal(std::declval<char*>(), std::declval<char*>())} -> std::same_as<bool>; //??
@@ -96,7 +94,7 @@ concept CustomMappable =
 
 template<typename T>
 concept JSONBasicValue =
-        !JSONWrappedValue<T> && (
+        !JSONWrappedValueCompatible<T> && (
         std::same_as<T, bool>
     || std::same_as<T, double>
     || (std::convertible_to<T, std::int64_t> && std::convertible_to<std::int64_t, T>)
@@ -105,13 +103,21 @@ concept JSONBasicValue =
             );
 
 template<typename T>
-concept JSONArrayValue = std::ranges::range<T> && !JSONBasicValue<T> && JSONWrappedValue<typename T::value_type>;
+concept JSONArrayValue = std::ranges::range<T> && !JSONBasicValue<T> && JSONWrappedValueCompatible<typename T::value_type>;
 
 template<typename T>
-concept JSONObjectValue = std::is_class_v<T> && !std::ranges::range<T> && !JSONArrayValue<T> && !JSONBasicValue<T>;
+concept JSONMapValue = !JSONBasicValue<T> && JSONWrappedValueCompatible<typename T::mapped_type>
+        && requires (T val) {
+    val["fuuu"] = std::declval<typename T::mapped_type>();
+    val.insert({std::declval<typename T::key_type>(), std::declval<typename T::mapped_type>()});
+};
 
 template<typename T>
-concept JSONWrapable = JSONBasicValue<T> || JSONArrayValue<T> || JSONObjectValue<T>;
+concept JSONObjectValue = std::is_class_v<T> && !JSONArrayValue<T> && !JSONBasicValue<T> && !JSONMapValue<T>;
+
+
+template<typename T>
+concept JSONWrapable = JSONBasicValue<T> || JSONArrayValue<T> || JSONObjectValue<T> || JSONMapValue<T>;
 
 }
 
@@ -189,39 +195,40 @@ public:
     bool SerializeInternal(SerializerOutputCallbackConcept auto && clb) const {
         if constexpr(std::same_as<bool, Src>) {
             if(content) {
-                char v[] = "true";
+                constexpr char v[] = "true";
                 return clb(v, sizeof(v)-1);
             }
             else {
-                char v[] = "false";
+                constexpr char v[] = "false";
                 return clb(v, sizeof(v)-1);
             }
         } else if constexpr(d::StringTypeConcept<Src>) {
-            if(char v[] = "\""; !clb(v, sizeof(v)-1)) {
+            if(char v[] = "\""; !clb(v, sizeof(v)-1))  [[unlikely]] {
                 return false;
             }
             if constexpr(d::DynamicStringTypeConcept<Src>) {
-                if(!clb(reinterpret_cast<const char*>(content.data()), content.size() * sizeof (typename Src::value_type))) {
+                if(!clb(reinterpret_cast<const char*>(content.data()), content.size() * sizeof (typename Src::value_type)))  [[unlikely]] {
                     return false;
                 }
             } else {
                 std::size_t zp = 0;
                 while(zp < content.size () && content[zp] != 0) zp ++;
-                if(!clb(reinterpret_cast<const char*>(content.data()), zp * sizeof (typename Src::value_type))) {
+                if(!clb(reinterpret_cast<const char*>(content.data()), zp * sizeof (typename Src::value_type))) [[unlikely]] {
                     return false;
                 }
             }
-            if(char v[] = "\""; !clb(v, sizeof(v)-1)) {
+            if(char v[] = "\""; !clb(v, sizeof(v)-1)) [[unlikely]] {
                 return false;
             }
             return true;
         } else if constexpr(d::CustomMappable<Src>) {
-            if(char v[] = "\""; !clb(v, sizeof(v)-1)) {
+            if(char v[] = "\""; !clb(v, sizeof(v)-1)) [[unlikely]] {
                 return false;
             }
-            if(!content.SerializeInternal(std::forward<std::decay_t<decltype(clb)>>(clb)))
+            if(!content.SerializeInternal(std::forward<std::decay_t<decltype(clb)>>(clb)))  [[unlikely]] {
                 return false;
-            if(char v[] = "\""; !clb(v, sizeof(v)-1)) {
+            }
+            if(char v[] = "\""; !clb(v, sizeof(v)-1)) [[unlikely]] {
                 return false;
             }
             return true;
@@ -233,7 +240,7 @@ public:
                 char buf[50];
                 char * endChar = to_chars(buf, buf + sizeof (buf), content);
                 auto s = endChar-buf;
-                if(endChar-buf == sizeof (buf)) {
+                if(endChar-buf == sizeof (buf))  [[unlikely]] {
                     return false;
                 }
                 else {
@@ -245,56 +252,75 @@ public:
     }
 
     template<class InpIter> requires InputIteratorConcept<InpIter>
-    bool DeserialiseInternal(InpIter & begin, const InpIter & end) {
-        if(!d::skipWhiteSpace(begin, end))
+    bool DeserialiseInternal(InpIter & begin, const InpIter & end, DeserializationResult & ctx) {
+        if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
             return false;
-
+        }
+        if(end-begin>=5 && *(begin+0) == 'n'&&*(begin+1) == 'u'&&*(begin+2) == 'l'&&*(begin+3) == 'l'&&d::isPlainEnd(*(begin+4))) {
+            begin += 4;
+            return true;
+        }
         if constexpr(std::same_as<bool, Src>) {
             char fc = *begin;
             begin++;
-            if(fc == 't') {
-                constexpr char v[] = "rue";
-                for(int i = 0; i < 3; i ++) {
-                    if(begin == end) {
+            if(fc == 't' || fc == 'f') [[likely]] {
+                constexpr char vt[] = "rue";
+                constexpr char vf[] = "alse";
+                const char * v;
+                std::size_t sz;
+                bool to_assign;
+                if(fc == 't') {
+                    v = vt;
+                    to_assign = true;
+                    sz = sizeof (vt) - 1;
+                }
+                else {
+                    v = vf;
+                    to_assign = false;
+                    sz = sizeof (vf) - 1;
+                }
+
+                for(int i = 0; i < sz; i ++) {
+                    if(begin == end) [[unlikely]]{
+                        ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
                         return false;
                     }
-                    if(*begin != v[i]) {
+                    if(*begin != v[i]) [[unlikely]] {
+                        ctx.setError(DeserializationResult::UNEXPECTED_SYMBOL, end - begin);
                         return false;
                     }
                     begin ++;
                 }
-                if(!d::isPlainEnd(*begin)) return false;
-                content = true;
-                return true;
-            }
-            else if(fc == 'f') {
-                constexpr char v[] = "alse";
-                for(int i = 0; i < 4; i ++) {
-                    if(begin == end) {
-                        return false;
-                    }
-                    if(*begin != v[i]) {
-                        return false;
-                    }
-                    begin ++;
+                if(begin == end) [[unlikely]]{
+                    ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
+                    return false;
                 }
-                if(!d::isPlainEnd(*begin)) return false;
-                content = false;
+                if(!d::isPlainEnd(*begin)) [[unlikely]] {
+                    ctx.setError(DeserializationResult::UNEXPECTED_SYMBOL, end - begin);
+                    return false;
+                }
+                content = to_assign;
                 return true;
-            } else
+            } else {
+                ctx.setError(DeserializationResult::UNEXPECTED_SYMBOL, end - begin);
                 return false;
+            }
         } else if constexpr(d::StringTypeConcept<Src>) {
-            if(!d::skipWhiteSpaceTill(begin, end, '"'))
+            if(!d::skipWhiteSpaceTill(begin, end, '"', ctx))
                 return false;
 
             auto strBegin = begin;
-            auto strEnd = d::findJsonKeyStringEnd(begin, end);
-            if(strEnd == end)
+            auto strEnd = d::findJsonStringEnd(begin, end, ctx);
+            if(strEnd == end) [[unlikely]]{
+                ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
                 return false;
+            }
             begin = strEnd;
             begin ++;
-            if(begin == end)
+            if(begin == end) [[unlikely]]{
+                ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
                 return false;
+            }
 
             if constexpr (d::DynamicStringTypeConcept<Src>) { //dynamic
                 content.clear();
@@ -309,7 +335,8 @@ public:
                     content[index] = *strBegin;
                     strBegin ++;
                     index ++;
-                    if(index > content.size()) {
+                    if(index > content.size()) [[unlikely]] {
+                        ctx.setError(DeserializationResult::FIXED_SIZE_CONTAINER_OVERFLOW, end - begin);
                         return false;
                     }
                 }
@@ -324,12 +351,14 @@ public:
              std::size_t index = 0;
              while(!d::isPlainEnd(*begin)) {
                  if(begin == end ) [[unlikely]] {
-                     break;
+                     ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
+                     return false;
                  }
                  buf[index] = *begin;
                  begin ++;
                  index ++;
                  if(index > sizeof (buf) - 1) [[unlikely]] {
+                     ctx.setError(DeserializationResult::ILLFORMED_NUMBER, end - begin);
                      return false;
                  }
              }
@@ -339,23 +368,32 @@ public:
                  content = x;
                  return true;
              }
+             ctx.setError(DeserializationResult::ILLFORMED_NUMBER, end - begin);
              return false;
-         }else if constexpr(d::CustomMappable<Src>) {
-            if(!d::skipWhiteSpaceTill(begin, end, '"'))
+        } else if constexpr(d::CustomMappable<Src>) {
+            if(!d::skipWhiteSpaceTill(begin, end, '"', ctx))  [[unlikely]]{
                 return false;
+            }
 
             auto strBegin = begin;
-            auto strEnd = d::findJsonKeyStringEnd(begin, end);
-            if(strEnd == end)
+            auto strEnd = d::findJsonStringEnd(begin, end, ctx);
+            if(strEnd == end)  [[unlikely]] {
+                ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
                 return false;
+            }
             begin = strEnd;
             begin ++;
-            if(begin == end)
+            if(begin == end) [[unlikely]] {
                 return false;
-            return content.DeserialiseInternal(strBegin, strEnd);
-         } else {
-             return false;
-         }
+            }
+            if(!content.DeserialiseInternal(strBegin, strEnd)) [[unlikely]]{
+                ctx.setError(DeserializationResult::CUSTOM_MAPPER_ERROR, end - begin);
+            } else {
+                return true;
+            }
+        }
+        ctx.setError(DeserializationResult::INTERNAL_ERROR, end - begin);
+        return false;
     }
 };
 
@@ -374,29 +412,40 @@ public:
 
 
     bool SerializeInternal(SerializerOutputCallbackConcept auto && clb) const {
-        if(char v[] = "["; !clb(v, sizeof(v)-1)) {
+        if(char v[] = "["; !clb(v, sizeof(v)-1)) [[unlikely]] {
             return false;
         }
         std::size_t last = static_cast<const Src&>(*this).size()-1;
         std::size_t i = 0;
         for(const auto & item: static_cast<const Src&>(*this)) {
-            if(!item.SerializeInternal(std::forward<std::decay_t<decltype(clb)>>(clb))) {
+            if(!item.SerializeInternal(std::forward<std::decay_t<decltype(clb)>>(clb)))  [[unlikely]] {
                 return false;
             }
             if(i != last) {
-                if(char v[] = ","; !clb(v, sizeof(v)-1)) {
+                if(char v[] = ","; !clb(v, sizeof(v)-1))  [[unlikely]] {
                     return false;
                 }
             }
             i++;
         }
-        char v[] = "]";
-        return clb(v, sizeof(v)-1);
+        if(char v[] = "]"; !clb(v, sizeof(v)-1))  [[unlikely]] {
+            return false;
+        }
+        return true;
     }
 
     template<class InpIter> requires InputIteratorConcept<InpIter>
-    bool DeserialiseInternal(InpIter & begin, const InpIter & end) {
-        if(!d::skipWhiteSpaceTill(begin, end, '[')) return false;
+    bool DeserialiseInternal(InpIter & begin, const InpIter & end, DeserializationResult & ctx) {
+        if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
+            return false;
+        }
+        if(end-begin>=4 && *(begin+0) == 'n'&&*(begin+1) == 'u'&&*(begin+2) == 'l'&&*(begin+3) == 'l') {
+            begin += 4;
+            return true;
+        }
+        if(!d::skipWhiteSpaceTill(begin, end, '[', ctx)) [[unlikely]] {
+            return false;
+        }
         if constexpr (d::DynamicContainerTypeConcept<Src>) {
             static_cast<Src&>(*this).clear();
             if constexpr (d::ReserveCapable<Src>) {
@@ -404,21 +453,30 @@ public:
             }
             ItemType newItem;
             while(begin != end) {
-                if(!d::skipWhiteSpace(begin, end)) {
+                if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
                     return false;
                 }
                 if(*begin == ']') {
                     begin ++;
                     return true;
                 }
-
-                bool ok = newItem.DeserialiseInternal(begin, end);
-                if(!ok) {
-                    return false;
+                if(end-begin>=5 && *(begin+0) == 'n'&&*(begin+1) == 'u'&&*(begin+2) == 'l'&&*(begin+3) == 'l'&&d::isPlainEnd(*(begin+4))) {
+                    begin += 4;
+                    newItem = ItemType();
+                } else {
+                    bool ok;
+                    if constexpr(!d::CustomMappable<ItemType>) {
+                        ok = newItem.DeserialiseInternal(begin, end, ctx);
+                    } else {
+                        ok = newItem.DeserialiseInternal(begin, end);
+                    }
+                    if(!ok) {
+                        return false;
+                    }
                 }
                 static_cast<Src&>(*this).push_back(newItem);
 
-                if(!d::skipWhiteSpace(begin, end)) {
+                if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
                     return false;
                 }
                 if(*begin == ',') {
@@ -429,7 +487,7 @@ public:
             int counter = 0;
 
             while(begin != end) {
-                if(!d::skipWhiteSpace(begin, end)) {
+                if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
                     return false;
                 }
                 if(*begin == ']') {
@@ -437,17 +495,24 @@ public:
                     return true;
                 }
                 if(counter > static_cast<const Src&>(*this).size()) {
+                    ctx.setError(DeserializationResult::FIXED_SIZE_CONTAINER_OVERFLOW, end - begin);
                     return false;
                 }
-                ItemType & newItem = static_cast<Src&>(*this)[counter];
+                if(end-begin>=5 && *(begin+0) == 'n'&&*(begin+1) == 'u'&&*(begin+2) == 'l'&&*(begin+3) == 'l'&&d::isPlainEnd(*(begin+4))) {
+                    begin += 4;
+                    ItemType & newItem = static_cast<Src&>(*this)[counter];
+                    newItem = ItemType();
+                } else {
+                    ItemType & newItem = static_cast<Src&>(*this)[counter];
 
-                bool ok = newItem.DeserialiseInternal(begin, end);
-                if(!ok) {
-                    return false;
+                    bool ok = newItem.DeserialiseInternal(begin, end, ctx);
+                    if(!ok) {
+                        return false;
+                    }
                 }
                 counter ++;
 
-                if(!d::skipWhiteSpace(begin, end)) {
+                if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
                     return false;
                 }
                 if(*begin == ',') {
@@ -455,6 +520,128 @@ public:
                 }
             }
         }
+        ctx.setError(DeserializationResult::INTERNAL_ERROR, end - begin);
+        return false;
+    }
+};
+
+template <d::JSONMapValue Src, d::ConstString Str>
+class J<Src, Str> : public Src{
+    using ItemType = typename Src::mapped_type;
+    using KeyType = typename Src::key_type;
+public:
+    using JSONValueKind = d::JSONValueKindEnumMap;
+    static constexpr auto FieldName = Str;
+
+    Src& operator = (const Src& other) {
+        return static_cast<Src &>(*this) = other;
+    }
+    J() = default;
+    J(const Src & other): Src(other) {}
+
+
+    bool SerializeInternal(SerializerOutputCallbackConcept auto && clb) const {
+        if(char v[] = "{"; !clb(v, sizeof(v)-1))  [[unlikely]] {
+            return false;
+        }
+        std::size_t last = static_cast<const Src&>(*this).size()-1;
+        std::size_t i = 0;
+        for(const auto & [key, item]: static_cast<const Src&>(*this)) {
+
+            if(char v[] = "\""; !clb(v, sizeof(v)-1)) [[unlikely]] {
+                return false;
+            }
+            if(!clb(reinterpret_cast<const char*>(key.data()), key.size() * sizeof(typename KeyType::value_type))) [[unlikely]] {
+                return false ;
+            }
+            if(char v[] = "\":"; !clb(v,  sizeof(v)-1)) [[unlikely]] {
+                return false;
+            }
+
+            if(!item.SerializeInternal(std::forward<std::decay_t<decltype(clb)>>(clb))) [[unlikely]] {
+                return false;
+            }
+            if(i != last) {
+                if(char v[] = ","; !clb(v, sizeof(v)-1))  [[unlikely]] {
+                    return false;
+                }
+            }
+            i++;
+        }
+        if(char v[] = "}"; !clb(v, sizeof(v)-1))  [[unlikely]] {
+            return false;
+        }
+        return true;
+    }
+
+    template<class InpIter> requires InputIteratorConcept<InpIter>
+    bool DeserialiseInternal(InpIter & begin, const InpIter & end, DeserializationResult & ctx) {
+        if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
+            return false;
+        }
+        if(end-begin>=5 && *(begin+0) == 'n'&&*(begin+1) == 'u'&&*(begin+2) == 'l'&&*(begin+3) == 'l'&&d::isPlainEnd(*(begin+4))) {
+            begin += 4;
+            return true;
+        }
+        if(!d::skipWhiteSpaceTill(begin, end, '{', ctx)) [[unlikely]] {
+            return false;
+        }
+        static_cast<Src&>(*this).clear();
+        ItemType newItem;
+        while(begin != end) {
+            if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
+                return false;
+            }
+            if(*begin == '}') {
+                begin ++;
+                return true;
+            }
+
+            if(!d::skipWhiteSpaceTill(begin, end, '"', ctx)) [[unlikely]] {
+                return false;
+            }
+            InpIter keyBegin = begin;
+
+            InpIter keyEnd = d::findJsonStringEnd(keyBegin, end, ctx);
+            if(keyEnd == end) [[unlikely]] {
+                return false;
+            }
+            begin = keyEnd;
+            begin ++;
+            if(begin == end) [[unlikely]] {
+                ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
+                return false;
+            }
+            if(!d::skipWhiteSpaceTill(begin, end, ':', ctx)) [[unlikely]] {
+                return false;
+            }
+            if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
+                return false;
+            }
+
+            if(end-begin>=5 && *(begin+0) == 'n'&&*(begin+1) == 'u'&&*(begin+2) == 'l'&&*(begin+3) == 'l'&&d::isPlainEnd(*(begin+4))) {
+                begin += 4;
+            } else {
+                bool ok;
+                if constexpr(!d::CustomMappable<ItemType>) {
+                    ok = newItem.DeserialiseInternal(begin, end, ctx);
+                } else {
+                    ok = newItem.DeserialiseInternal(begin, end);
+                }
+                if(!ok) {
+                    return false;
+                }
+                static_cast<Src&>(*this).insert({KeyType(keyBegin, keyEnd), newItem});
+            }
+
+            if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
+                return false;
+            }
+            if(*begin == ',') {
+                begin ++;
+            }
+        }
+        ctx.setError(DeserializationResult::INTERNAL_ERROR, end - begin);
         return false;
     }
 };
@@ -464,10 +651,10 @@ namespace d {
 template <std::size_t Index, class PotentialJsonFieldT> struct KeyIndexEntry {
     static constexpr bool skip = true;
 };
-template <std::size_t Index, class InnerFieldType, d::ConstString KeyString>
-struct KeyIndexEntry<Index, J<InnerFieldType, KeyString>>{
+template <std::size_t Index, JSONWrappedValueCompatible JsonFieldT>
+struct KeyIndexEntry<Index, JsonFieldT>{
     static constexpr bool skip = false;
-    static constexpr auto FieldName =  KeyString;
+    static constexpr auto FieldName =  JsonFieldT::FieldName;
     static constexpr std::size_t OriginalIndex = Index;
 };
 
@@ -550,21 +737,26 @@ class J<Src, Str> : public Src {
     static constexpr auto sortedKeyIndexArray = KeyIndexBuilderT::sortedKeyIndexArray;
 
     template<class InpIter> requires InputIteratorConcept<InpIter>
-    bool DeserialiseField(const InpIter & keyBegin, const InpIter & keyEnd, InpIter &begin, const InpIter & end) {
+    bool DeserialiseField(const InpIter & keyBegin, const InpIter & keyEnd, InpIter &begin, const InpIter & end, DeserializationResult & ctx) {
         std::string_view keySV{keyBegin, keyEnd};
 
         auto foundVarIt = d::binary_search(sortedKeyIndexArray.begin(), sortedKeyIndexArray.end(), keySV, std::ranges::less{}, typename KeyIndexBuilderT::ProjKeyIndexVariantToStringView{});
 
         if(foundVarIt == sortedKeyIndexArray.end()) {
-            return d::skipJsonValue(begin, end);
+            std::uint8_t level = d::SkippingMaxNestingLevel;
+            return d::skipJsonValue(level, begin, end, ctx);
         }
 
         bool deserRes = swl::visit(
-                [this, &begin, &end]<class KeyIndexType>(KeyIndexType keyIndex) -> bool{
+                [this, &begin, &end, &ctx]<class KeyIndexType>(KeyIndexType keyIndex) -> bool{
                     if constexpr(KeyIndexType::skip == false) {
                         using FieldType = pfr::tuple_element_t<KeyIndexType::OriginalIndex, Src>;
                         FieldType & f = pfr::get<KeyIndexType::OriginalIndex>(static_cast<Src &>(*this));
-                        return f.DeserialiseInternal(begin, end);
+                        if constexpr(!d::CustomMappable<FieldType>) {
+                            return f.DeserialiseInternal(begin, end, ctx);
+                        } else {
+                            return f.DeserialiseInternal(begin, end);
+                        }
                     } else
                         return false;
                 }
@@ -586,7 +778,7 @@ public:
     bool SerializeInternal(SerializerOutputCallbackConcept auto && clb) const {
         std::size_t last_index = 0;
         pfr::for_each_field(static_cast<const Src &>(*this), [&last_index]<class T>(const T & val, std::size_t index){
-            if constexpr(d::JSONWrappedValue<T>) { last_index = index;}
+            if constexpr(d::JSONWrappedValueCompatible<T>) { last_index = index;}
         });
         if(char v[] = "{"; !clb(v, sizeof(v)-1)) {
             return false;
@@ -594,8 +786,8 @@ public:
         bool r = true;
         auto visitor = [&clb, last_index, &r]<class T>(const T & val, std::size_t index) {
             if(!r) return;
-            if constexpr(d::JSONWrappedValue<T>) {
-                if(char v[] = "\""; !clb(v, sizeof(v)-1)) {
+            if constexpr(d::JSONWrappedValueCompatible<T>) {
+                if(char v[] = "\""; !clb(v, sizeof(v)-1))[[unlikely]]   {
                     r = false;
                     return;
                 }
@@ -603,16 +795,16 @@ public:
                     r = false;
                     return;
                 }
-                if(char v[] = "\":"; !clb(v,  sizeof(v)-1)) {
+                if(char v[] = "\":"; !clb(v,  sizeof(v)-1)) [[unlikely]] {
                     r = false;
                     return;
                 }
-                if(!val.SerializeInternal(std::forward<std::decay_t<decltype(clb)>>(clb))) {
+                if(!val.SerializeInternal(std::forward<std::decay_t<decltype(clb)>>(clb)))[[unlikely]]  {
                     r = false;
                     return;
                 }
                 if(index != last_index) {
-                    if(char v[] = ","; !clb(v, sizeof(v)-1)) {
+                    if(char v[] = ","; !clb(v, sizeof(v)-1)) [[unlikely]] {
                         r = false;
                         return;
                     }
@@ -620,8 +812,10 @@ public:
             }
         };
         pfr::for_each_field(static_cast<const Src &>(*this), visitor);
-        if(!r) return false;
-        if(char v[] = "}"; !clb(v, sizeof(v)-1)) {
+        if(!r) [[unlikely]]  {
+            return false;
+        }
+        if(char v[] = "}"; !clb(v, sizeof(v)-1)) [[unlikely]] {
             return false;
         }
         return true;
@@ -640,52 +834,75 @@ public:
     }
 
     template<class InpIter> requires InputIteratorConcept<InpIter>
-    bool Deserialize(InpIter begin, const InpIter & end) {
-        return DeserialiseInternal(begin, end);
+    DeserializationResult Deserialize(InpIter begin, const InpIter & end) {
+        DeserializationResult ctx;
+        bool ret = DeserialiseInternal(begin, end, ctx);
+        return ctx;
     }
 
     template<class ContainterT> requires std::ranges::range<ContainterT>
-    bool Deserialize(const ContainterT & c) {
+    DeserializationResult Deserialize(const ContainterT & c) {
+        DeserializationResult ctx;
         auto b = c.begin();
-        return DeserialiseInternal(b, c.end());
+        bool ret =  DeserialiseInternal(b, c.end(), ctx);
+        return ctx;
     }
 
     template<class InpIter> requires InputIteratorConcept<InpIter>
-    bool DeserialiseInternal(InpIter & begin, const InpIter & end) {
-        if(!d::skipWhiteSpaceTill(begin, end, '{')) return false;
+    bool DeserialiseInternal(InpIter & begin, const InpIter & end, DeserializationResult & ctx) {
+        if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
+            return false;
+        }
+        if(end-begin>=5 && *(begin+0) == 'n'&&*(begin+1) == 'u'&&*(begin+2) == 'l'&&*(begin+3) == 'l'&&d::isPlainEnd(*(begin+4))) {
+            begin += 4;
+            return true;
+        }
+        if(!d::skipWhiteSpaceTill(begin, end, '{', ctx)) [[unlikely]] {
+            return false;
+        }
         while(begin != end) {
-            if(!d::skipWhiteSpace(begin, end))
+            if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
                 return false;
+            }
             if(*begin == '}') {
                 begin ++;
                 return true;
             }
 
-            if(!d::skipWhiteSpaceTill(begin, end, '"'))
+            if(!d::skipWhiteSpaceTill(begin, end, '"', ctx)) [[unlikely]] {
                 return false;
+            }
             InpIter keyBegin = begin;
 
-            InpIter keyEnd = d::findJsonKeyStringEnd(keyBegin, end);
-            if(keyEnd == end)
+            InpIter keyEnd = d::findJsonStringEnd(keyBegin, end, ctx);
+            if(keyEnd == end) [[unlikely]] {
                 return false;
+            }
             begin = keyEnd;
             begin ++;
-            if(begin == end)
+            if(begin == end) [[unlikely]] {
+                ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
                 return false;
-            if(!d::skipWhiteSpaceTill(begin, end, ':'))
+            }
+            if(!d::skipWhiteSpaceTill(begin, end, ':', ctx)) [[unlikely]] {
                 return false;
+            }
+            if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
+                return false;
+            }
 
-            bool ok = DeserialiseField(keyBegin, keyEnd, begin, end);
+            bool ok = DeserialiseField(keyBegin, keyEnd, begin, end, ctx);
             if(!ok)
                 return false;
 
-            if(!d::skipWhiteSpace(begin, end))
+            if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
                 return false;
+            }
             if(*begin == ',') {
                 begin ++;
             }
         }
-
+        ctx.setError(DeserializationResult::INTERNAL_ERROR, end - begin);
         return false;
     }
 };

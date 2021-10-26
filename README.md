@@ -12,6 +12,7 @@ For example, there is GeoJSON data, [canada.json](https://github.com/boostorg/js
     #include <string>
     #include <fstream>
 
+    namespace Geo {
     using std::vector, std::array, std::string
 
     using JSONReflection::J;
@@ -43,12 +44,12 @@ For example, there is GeoJSON data, [canada.json](https://github.com/boostorg/js
     };
 
     using Root = J<Root_>;
-
+    }
     int main() {
         std::ifstream ifs("canada.json");
         string data(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
         
-        Root root;
+        Geo::Root root;
 
         if(root.Deserialize(data)) {
             //all done!
@@ -142,6 +143,14 @@ Object may contain garbage half-parsed data if deserialization fails, so use som
 
     Such fields are just ignored. 
 
+- To work with JSON object in form of (string -> YOURTYPE), use map stl-compatible container, like:
+
+        using std::map;
+        struct Root_ {
+            J<map<string, J<YOURTYPE>>, "map"> map;
+        }
+        using Root = J<Root_>;
+
 - Custom string parsing (to implement date support, for example). Add a pair of serialize/deserialize methods to your class, then use it with  ```J``` wrapper, as usual:
 
         struct CustomDateString {
@@ -180,4 +189,5 @@ Object may contain garbage half-parsed data if deserialization fails, so use som
 - Improve JSON skipping (use recursive calls with depth control)
 - Error handling
 - Option to fail on excess keys
-- Add auto escape for strings and ```CustomMappable``` members
+- String escape/unescape
+- Recursive structures?

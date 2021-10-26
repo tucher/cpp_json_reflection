@@ -5,13 +5,14 @@
 #include <list>
 #include <chrono>
 #include <utility>
-
+#include <map>
 #include "test_utils.hpp"
 
 using JSONReflection::J;
 
-using std::vector, std::list, std::array, std::string, std::int64_t;
+using std::vector, std::list, std::array, std::string, std::int64_t, std::map;
 
+namespace TestFeatures {
 struct InnerStruct {
     J<string, "name">  name;
     J<double, "value"> value;
@@ -49,6 +50,7 @@ struct CustomDateString {
     }
 };
 
+using JSONMapTestType = map<string, J<bool>>;
 
 struct RootObject_ {
     J<CustomDateString,        "date">        date;
@@ -62,20 +64,27 @@ struct RootObject_ {
     J<array<J<int64_t>, 5>,   "ints_array">  ints_array;
 
     J<array<J<InnerStruct3>, 2>,            "obj">          fixed_sized_objs;
-
+    J<map<string, J<bool>>, "flag_map"> flag_map;
     auto operator<=>(const RootObject_&) const = default;
 };
 
 using RootObject = J<RootObject_>;
-
+}
 
 //using TestInline = J
 int canadaJsonPerfTest();
+int twitterJsonPerfTest();
+
 int main()
 {
+//    return twitterJsonPerfTest();
     return canadaJsonPerfTest();
     constexpr char inp3const[]{R"(
         {
+            "skip_me2" :  "..  .",
+            "skip_me3": {"ints_array": [-0, -0.4, -235.12323e+2, -8, 0.001e-3, 0, 10], "string_like": "i am std::vector, not std::string", "obj": { "3level_nesting": { "p1": "deser1", "p2":-373, "p3":-378, "p4": false, "inner_struct": { "name":"deser2", "value":-100 } } }, "a":123456, "params":{ "p1":"string value", "p2":1000, "p3":2000, "p4":false, "inner_struct": { "name":"deser6","value":800 } } },
+
+            "flag_map": {"f1": true, "f2": false},
             "date":    "2021-10-24T11:25:29Z"
             "primitive_array": [true,false,true,false],
             "ints_array": [-2, -4, -6, -8, -10],
@@ -107,13 +116,18 @@ int main()
         }
     )"};
     std::string inp3 = inp3const;
+    std::string inp3copy = inp3;
     std::cout << "JSON length: " << inp3.size() << std::endl;
 
-    RootObject t3;
+    TestFeatures::RootObject t3;
     char * b = &inp3.data()[0];
     char * e = &inp3.data()[inp3.size()];
 
     t3.Deserialize(inp3);
+    t3.Deserialize(inp3.cbegin(), inp3.cend());
+    if (inp3 != inp3copy) {
+        throw 1;
+    }
     doPerformanceTest("Perf Test For t3.Deserialize", 2000000, [&t3, &b, &e]{
         bool res1 = t3.Deserialize(b, e);
         if(!res1) throw 1;
@@ -124,9 +138,17 @@ int main()
 //        if(!res1) throw 1;
 
 //    }
+    {
+        std::size_t counter = 0;
+        t3.Serialize([&counter](const char * d, std::size_t size){
+            std::cout << std::string(d, size);
+            counter += size;
+            return true;
+        });
+        std::cout << std::endl << "Size ↑: " << counter << std::endl;
+    }
 
-//    t3.Deserialize(inp3);
-    RootObject testInit{{
+    TestFeatures::RootObject testInit{{
             .a {4444},
             .values_array {{
                     {{.name = {"Fuu"}, .value = {-273.55556}}},
@@ -176,9 +198,9 @@ int main()
 
 
 
-static_assert (sizeof(J<RootObject_>) == sizeof (RootObject_) );
+static_assert (sizeof(J<TestFeatures::RootObject_>) == sizeof (TestFeatures::RootObject_) );
 
-
+namespace FreeObj {
 struct InnerFreeObject {
     J<bool, "flag_1"> f1 = true;
     J<bool, "flag_2"> f2 = false;
@@ -198,7 +220,7 @@ using FreeObject = J<FreeObject_>;
 
 
 static_assert (std::is_trivially_copyable_v<FreeObject>);
-
+}
 
 //static_assert (std::tuple_size_v< FreeObject::testTupleT> == 7);
 ////static_assert (std::tuple_element_t<1, FreeObject::testTupleT>)
@@ -234,7 +256,7 @@ static constexpr auto keyLengthGetter = []<class KeyIndexT>(KeyIndexT v) -> std:
 //static_assert (swl::visit(keyLengthGetter, FreeObject::sortedKeyIndexArrayTemp[3]) == 11 );
 
 
-FreeObject compileTimeInit{{
+FreeObj::FreeObject compileTimeInit{{
         {{ .f1{true}, .f2{true} }},
         {0},
         {{{
@@ -245,7 +267,7 @@ FreeObject compileTimeInit{{
                            }};
 
 
-void f1(InnerStruct2 & s) {
+void f1(TestFeatures::InnerStruct2 & s) {
     s.p3 = true;
 }
 
@@ -256,35 +278,35 @@ void compileTimeTests() {
 
     J<bool> boolV2 = true;
 
-    RootObject t1;
+    TestFeatures::RootObject t1;
 
     t1.a = 42;
     auto tt = t1.a;
 
-    RootObject t4 = t1;
+    TestFeatures::RootObject t4 = t1;
 
 
-    RootObject t22;
+    TestFeatures::RootObject t22;
     t22.a = 100500;
     t22.obj._3level_nesting.inner_struct.name = "hello";
 
     t22.values_array = {{}, {}, {}};
 
     t22.fixed_sized_objs = {
-        InnerStruct3{},
-        InnerStruct3{}
+        TestFeatures::InnerStruct3{},
+        TestFeatures::InnerStruct3{}
     };
     f1(t22.obj._3level_nesting);
 
 
 
-    InnerStruct ins1{std::string("fu"), 42};
+    TestFeatures::InnerStruct ins1{std::string("fu"), 42};
 
-    J<InnerStruct> s;
+    J<TestFeatures::InnerStruct> s;
     s.name = "erfefr";
     s.value = 810;
 
-    RootObject t2;
+    TestFeatures::RootObject t2;
     t2.a = 100500;
     t2.obj._3level_nesting.inner_struct.name = "hello";
 
@@ -309,7 +331,7 @@ void compileTimeTests() {
         return true;
     });
 
-    t2.values_array.push_back(InnerStruct{});
+    t2.values_array.push_back(TestFeatures::InnerStruct{});
 //    RootObject a1;
 //    RootObject_ a2;
 //    a2 = a1;
@@ -317,8 +339,8 @@ void compileTimeTests() {
 //    bool vmp = (a1 == a1);
 //    bool vmp2 = (a1 == a2);
 
-    list<InnerStruct> l;
-    l.push_back(J<InnerStruct>{});
+    list<TestFeatures::InnerStruct> l;
+    l.push_back(J<TestFeatures::InnerStruct>{});
     J<int64_t> Jplain1;
     Jplain1 ++;
 
@@ -360,9 +382,13 @@ void compileTimeTests() {
 
     opsChecker(int64_t{});
 
-    opsChecker(RootObject_{});
-    opsChecker(list<J<InnerStruct>>{});
+    opsChecker(TestFeatures::RootObject_{});
+    opsChecker(list<J<TestFeatures::InnerStruct>>{});
 
 
-    static_assert (JSONReflection::d::JSONBasicValue<CustomDateString>);
+    static_assert (JSONReflection::d::JSONBasicValue<TestFeatures::CustomDateString>);
+
+    static_assert (JSONReflection::d::JSONMapValue<TestFeatures::JSONMapTestType>);
+
+
 }
