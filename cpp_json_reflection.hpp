@@ -666,16 +666,18 @@ struct KeyIndexBuilder<std::tuple<FieldTypes...>, std::index_sequence<Is...>>  {
     static constexpr std::size_t jsonFieldsCount = (0 + ... + (KeyIndexEntry<Is, FieldTypes>::skip ? 0: 1));
     using KeyIndexEntryArrayType = std::array<VarT, jsonFieldsCount>;
 
+    struct visitor {
+        template <class KeyIndexType>
+        constexpr  std::string_view operator()(KeyIndexType keyIndex) {
+            if constexpr(KeyIndexType::skip == false) {
+                return keyIndex.FieldName.toStringView();
+            } else
+                return {};
+        }
+    };
     struct ProjKeyIndexVariantToStringView{
         constexpr std::string_view operator()(VarT val) const {
-            return swl::visit(
-                    []<class KeyIndexType>(KeyIndexType keyIndex) -> std::string_view {
-                            if constexpr(KeyIndexType::skip == false) {
-                                return keyIndex.FieldName.toStringView();
-                            } else
-                                return {};
-                    }
-           , val);
+            return swl::visit(visitor{}, val);
         }
     };
 

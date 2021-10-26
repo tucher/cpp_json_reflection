@@ -7,7 +7,6 @@
 #include <utility>
 #include <map>
 #include "test_utils.hpp"
-
 using JSONReflection::J;
 
 using std::vector, std::list, std::array, std::string, std::int64_t, std::map;
@@ -75,10 +74,11 @@ using RootObject = J<RootObject_>;
 int canadaJsonPerfTest();
 int twitterJsonPerfTest();
 
+
 int main()
 {
-//    return twitterJsonPerfTest();
-    return canadaJsonPerfTest();
+    return twitterJsonPerfTest();
+//    return canadaJsonPerfTest();
     constexpr char inp3const[]{R"(
         {
             "skip_me2" :  "..  .",
@@ -196,8 +196,6 @@ int main()
     return 0;
 }
 
-
-
 static_assert (sizeof(J<TestFeatures::RootObject_>) == sizeof (TestFeatures::RootObject_) );
 
 namespace FreeObj {
@@ -217,43 +215,7 @@ struct FreeObject_ {
 };
 using FreeObject = J<FreeObject_>;
 
-
-
-static_assert (std::is_trivially_copyable_v<FreeObject>);
 }
-
-//static_assert (std::tuple_size_v< FreeObject::testTupleT> == 7);
-////static_assert (std::tuple_element_t<1, FreeObject::testTupleT>)
-//static_assert (std::same_as<J<std::int64_t, "counter"  >, std::tuple_element_t<1, FreeObject::testTupleT2>> );
-//static_assert (std::tuple_element_t<1, FreeObject::testTupleT>::skip == false );
-//static_assert (std::tuple_element_t<2, FreeObject::testTupleT>::FieldName.Length == 11 );
-//static_assert (std::tuple_element_t<3, FreeObject::testTupleT>::skip == true );
-//static_assert (FreeObject::jsonFieldsCount == 4 );
-//static_assert (FreeObject::sortedKeyIndexArrayTemp.size() == 4 );
-
-
-static constexpr auto indexGetter = []<class KeyIndexT>(KeyIndexT v) -> std::size_t {
-        if constexpr (KeyIndexT::skip == false) {
-            return v.OriginalIndex;
-          }
-          else {
-              return -1;
-          }
-
-    };
-
-static constexpr auto keyLengthGetter = []<class KeyIndexT>(KeyIndexT v) -> std::size_t {
-        if constexpr (KeyIndexT::skip == false) {
-            return v.FieldName.Length;
-          }
-          else {
-              return -1;
-          }
-
-    };
-
-//static_assert (swl::visit(indexGetter, FreeObject::sortedKeyIndexArrayTemp[3]) == 2 );
-//static_assert (swl::visit(keyLengthGetter, FreeObject::sortedKeyIndexArrayTemp[3]) == 11 );
 
 
 FreeObj::FreeObject compileTimeInit{{
@@ -392,3 +354,97 @@ void compileTimeTests() {
 
 
 }
+/*
+template <JSONReflection::d::ConstString Str>
+struct Member {
+    static constexpr auto FieldName =  Str;
+};
+
+template <std::size_t Index, class T>
+struct KeyIndexEntry{
+    static constexpr bool skip = false;
+    static constexpr auto FieldName =  T::FieldName;
+    static constexpr std::size_t OriginalIndex = Index;
+};
+
+namespace std{
+template <class ... FieldTypes, std::size_t ... Is>
+constexpr void swap(mpark::variant<KeyIndexEntry<Is, FieldTypes>...>& lhs, mpark::variant<KeyIndexEntry<Is, FieldTypes>...>& rhs ){
+    auto t = lhs;
+    lhs = rhs;
+    rhs = t;
+}
+}
+template <class T, class I> struct KeyIndexBuilder;
+template <class ... FieldTypes, std::size_t ... Is>
+struct KeyIndexBuilder<std::tuple<FieldTypes...>, std::index_sequence<Is...>>  {
+    using VarT = mpark::variant<KeyIndexEntry<Is, FieldTypes>...>;
+    using KeyIndexEntryArrayType = std::array<VarT, sizeof... (Is)>;
+    struct visitor {
+        template <class KeyIndexType>
+        constexpr  std::string_view operator()(KeyIndexType keyIndex) {
+            if constexpr(KeyIndexType::skip == false) {
+                return keyIndex.FieldName.toStringView();
+            } else
+                return {};
+        }
+    };
+    struct ProjKeyIndexVariantToStringView{
+        constexpr std::string_view operator()(VarT val) const {
+            return mpark::visit(visitor{}, val);
+        }
+    };
+    static constexpr KeyIndexEntryArrayType sortKeyIndexes(std::array<VarT, sizeof... (Is)>  vals) {
+//        KeyIndexEntryArrayType ret;
+//        std::size_t j = 0;
+//        for(std::size_t i = 0; i < vals.size(); i++) {
+//            if(swl::visit([](auto v){ return !v.skip; }, vals[i])) {
+//                ret[j] = vals[i];
+//                j++;
+//            }
+//        }
+//        std::ranges::sort(ret, std::ranges::less{}, ProjKeyIndexVariantToStringView{});
+        std::ranges::sort(vals, std::ranges::less{}, ProjKeyIndexVariantToStringView{});
+
+        return vals;
+    }
+    static constexpr KeyIndexEntryArrayType sortedKeyIndexArray = sortKeyIndexes({KeyIndexEntry<Is, FieldTypes>()...});
+};
+
+int checher2() {
+
+    struct Tst1_ {
+        Member< "created_at"> created_at;
+        Member< "id">        id;
+        Member< "id_str">    id_str;
+        Member< "text">        text;
+        Member< "source">        source;
+        Member< "truncated">        truncated;
+        Member< "in_reply_to_status_id">        in_reply_to_status_id;
+        Member< "in_reply_to_status_id_str">        in_reply_to_status_id_str;
+        Member< "in_reply_to_user_id">        in_reply_to_user_id;
+        Member< "in_reply_to_user_id_str">        in_reply_to_user_id_str;
+        Member< "in_reply_to_screen_name">        in_reply_to_screen_name;
+        Member< "quoted_status_id">        quoted_status_id;
+        Member< "quoted_status_id_str">        quoted_status_id_str;
+        Member< "is_quote_status">        is_quote_status;
+        Member< "quote_count">        quote_count;
+        Member< "reply_count">        reply_count;
+        Member< "retweet_count">        retweet_count;
+        Member< "favorite_count">        favorite_count;
+        Member< "favorited">        favorited;
+        Member< "retweeted">        retweeted;
+        Member< "possibly_sensitive">        possibly_sensitive;
+        Member< "filter_level">        filter_level;
+        Member< "lang">        lang;
+
+    };
+    using KeyIndexBuilderT = KeyIndexBuilder<decltype (pfr::structure_to_tuple(std::declval<Tst1_>())), std::make_index_sequence<pfr::tuple_size_v<Tst1_>>>;
+    static constexpr auto sortedKeyIndexArray = KeyIndexBuilderT::sortedKeyIndexArray;
+    constexpr KeyIndexBuilderT _temp1;
+    constexpr KeyIndexBuilderT::KeyIndexEntryArrayType unsortedKeyEntries;
+
+    return 1;
+}
+bool v = checher2();
+*/

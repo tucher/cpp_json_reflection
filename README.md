@@ -184,10 +184,8 @@ Object may contain garbage half-parsed data if deserialization fails, so use som
 - High-performance string to double convertion library, [fast_double_parser](https://github.com/lemire/fast_double_parser)
 
 ## TODO
-- Compile-time options for max size if dynamic objects, preallocated containers size, etc..
+- Compile-time options for max size if dynamic objects, querying preallocated containers size, etc..
 - Complete test suit, including fuzzing
-- Improve JSON skipping (use recursive calls with depth control)
-- Error handling
 - Option to fail on excess keys
 - String escape/unescape
 - Recursive structures?

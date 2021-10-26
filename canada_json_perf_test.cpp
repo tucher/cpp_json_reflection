@@ -44,11 +44,11 @@ J<list<
 >, "coordinates"> coordinates;
 using T = decltype(coordinates);
 }
-//static_assert (JSONReflection::JSONWrappedValue<T>);
+//static_assert (JSONReflection::JSONWrappedValueCompatible<T>);
 //static_assert (std::is_same_v<JSONReflection::JSONValueKindEnumArray, T::JSONValueKind>);
-//static_assert (JSONReflection::JSONWrappedValue<T::ItemType>);
-//static_assert (JSONReflection::JSONWrappedValue<T::ItemType::ItemType>);
-//static_assert (JSONReflection::JSONWrappedValue<T::ItemType::ItemType::ItemType>);
+//static_assert (JSONReflection::JSONWrappedValueCompatible<T::ItemType>);
+//static_assert (JSONReflection::JSONWrappedValueCompatible<T::ItemType::ItemType>);
+//static_assert (JSONReflection::JSONWrappedValueCompatible<T::ItemType::ItemType::ItemType>);
 //static_assert (std::is_same_v<JSONReflection::JSONValueKindEnumPlain, T::ItemType::ItemType::ItemType::JSONValueKind>);
 
 //static_assert (std::is_trivially_assignable_v<Root, Root_>);
@@ -111,7 +111,7 @@ int canadaJsonPerfTest() {
     )"};
     std::string inp = inpconst;
 
-    std::ifstream ifs("../cpp_json_reflection/canada.json");
+    std::ifstream ifs("../../canada.json");
      inp = std::string(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
 
     std::cout << "inp.size " << inp.size() << std::endl;
