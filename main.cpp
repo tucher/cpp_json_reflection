@@ -36,13 +36,13 @@ struct InnerStruct3 {
 struct CustomDateString {
     auto operator<=>(const CustomDateString&) const = default;
     bool SerializeInternal( JSONReflection::SerializerOutputCallbackConcept auto && clb) const {
-        char v[] = "2021-10-24T11:25:29Z";
+        char v[] = "2021-10-\n24T11:25:29Z";
         return clb(v, sizeof(v)-1);
     }
 
     template<class InpIter> requires JSONReflection::InputIteratorConcept<InpIter>
     bool DeserialiseInternal(InpIter begin, InpIter end) {
-        char v[] = "2021-10-24T11:25:29Z";
+        char v[] = "2021-10\\n-24T11:25:29Z";
         auto r = memcmp(v, & *begin, sizeof(v)-1);
 
         return r == 0;
@@ -77,7 +77,7 @@ int twitterJsonPerfTest();
 
 int main()
 {
-    return twitterJsonPerfTest();
+//    return twitterJsonPerfTest();
 //    return canadaJsonPerfTest();
     constexpr char inp3const[]{R"(
         {
@@ -85,7 +85,7 @@ int main()
             "skip_me3": {"ints_array": [-0, -0.4, -235.12323e+2, -8, 0.001e-3, 0, 10], "string_like": "i am std::vector, not std::string", "obj": { "3level_nesting": { "p1": "deser1", "p2":-373, "p3":-378, "p4": false, "inner_struct": { "name":"deser2", "value":-100 } } }, "a":123456, "params":{ "p1":"string value", "p2":1000, "p3":2000, "p4":false, "inner_struct": { "name":"deser6","value":800 } } },
 
             "flag_map": {"f1": true, "f2": false},
-            "date":    "2021-10-24T11:25:29Z"
+            "date":    "2021-10\n-24T11:25:29Z"
             "primitive_array": [true,false,true,false],
             "ints_array": [-2, -4, -6, -8, -10],
             "string_like": "i am std::vector, not std::string",
@@ -139,13 +139,9 @@ int main()
 
 //    }
     {
-        std::size_t counter = 0;
-        t3.Serialize([&counter](const char * d, std::size_t size){
-            std::cout << std::string(d, size);
-            counter += size;
-            return true;
-        });
-        std::cout << std::endl << "Size ↑: " << counter << std::endl;
+        string out;
+        t3.Serialize(out);
+        std::cout << std::endl << "Size ↑: " << out.size() << std::endl;
     }
 
     TestFeatures::RootObject testInit{{

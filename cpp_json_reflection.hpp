@@ -17,13 +17,6 @@
 
 namespace JSONReflection {
 
-template <typename T>
-concept SerializerOutputCallbackConcept = requires (T clb) {
-    {clb(std::declval<const char*>(), std::declval<std::size_t>())} -> std::convertible_to<bool>;
-};
-
-
-
 namespace  d {
 constexpr std::uint8_t SkippingMaxNestingLevel = 32;
 using SerializerStubT = bool (*)(const char *data, std::size_t size);
@@ -31,6 +24,12 @@ static_assert (SerializerOutputCallbackConcept<SerializerStubT>);
 
 template <typename CharT, std::size_t N> struct ConstString
 {
+    constexpr bool check()  const {
+        for(int i = 0; i < N; i ++) {
+            if(std::uint8_t(m_data[i]) < 32) return false;
+        }
+        return true;
+    }
     constexpr ConstString(const CharT (&foo)[N+1]) {
         std::copy_n(foo, N+1, m_data);
     }
@@ -167,6 +166,7 @@ class J<Src, Str> {
 public:
     using JSONValueKind = d::JSONValueKindEnumPlain;
     static constexpr auto FieldName = Str;
+    static_assert(FieldName.check() == true, "Please, use printable chars as object keys");
 
     operator Src&() {
         return content;
@@ -207,13 +207,13 @@ public:
                 return false;
             }
             if constexpr(d::DynamicStringTypeConcept<Src>) {
-                if(!clb(reinterpret_cast<const char*>(content.data()), content.size() * sizeof (typename Src::value_type)))  [[unlikely]] {
+                if(!d::outputEscapedString(reinterpret_cast<const char*>(content.data()), content.size() * sizeof (typename Src::value_type), std::forward<std::decay_t<decltype(clb)>>(clb)))  [[unlikely]] {
                     return false;
                 }
             } else {
                 std::size_t zp = 0;
                 while(zp < content.size () && content[zp] != 0) zp ++;
-                if(!clb(reinterpret_cast<const char*>(content.data()), zp * sizeof (typename Src::value_type))) [[unlikely]] {
+                if(!d::outputEscapedString(reinterpret_cast<const char*>(content.data()), zp * sizeof (typename Src::value_type), std::forward<std::decay_t<decltype(clb)>>(clb)))  [[unlikely]] {
                     return false;
                 }
             }
@@ -225,7 +225,10 @@ public:
             if(char v[] = "\""; !clb(v, sizeof(v)-1)) [[unlikely]] {
                 return false;
             }
-            if(!content.SerializeInternal(std::forward<std::decay_t<decltype(clb)>>(clb)))  [[unlikely]] {
+            auto wr = [&clb](const char *data, std::size_t size) {
+                return d::outputEscapedString(data, size, std::forward<std::decay_t<decltype(clb)>>(clb));
+            };
+            if(!content.SerializeInternal(std::forward<std::decay_t<decltype(wr)>>(wr)))  [[unlikely]] {
                 return false;
             }
             if(char v[] = "\""; !clb(v, sizeof(v)-1)) [[unlikely]] {
@@ -403,6 +406,7 @@ class J<Src, Str> : public Src{
 public:
     using JSONValueKind = d::JSONValueKindEnumArray;
     static constexpr auto FieldName = Str;
+    static_assert(FieldName.check() == true, "Please, use printable chars as object keys");
 
     Src& operator = (const Src& other) {
         return static_cast<Src &>(*this) = other;
@@ -532,6 +536,7 @@ class J<Src, Str> : public Src{
 public:
     using JSONValueKind = d::JSONValueKindEnumMap;
     static constexpr auto FieldName = Str;
+    static_assert(FieldName.check() == true, "Please, use printable chars as object keys");
 
     Src& operator = (const Src& other) {
         return static_cast<Src &>(*this) = other;
@@ -769,6 +774,7 @@ class J<Src, Str> : public Src {
 public:
     using JSONValueKind = d::JSONValueKindEnumObject;
     static constexpr auto FieldName = Str;
+    static_assert(FieldName.check() == true, "Please, use printable chars as object keys");
 
     J(const Src & other): Src(other) {}
     J() = default;

@@ -3,10 +3,17 @@
 namespace JSONReflection {
 
 template<typename InpIter>
-concept InputIteratorConcept =  std::random_access_iterator<InpIter>
+concept InputIteratorConcept =  std::contiguous_iterator<InpIter>
         && (
             std::same_as<typename std::iterator_traits<InpIter>::value_type, char>
             );
+
+template <typename T>
+concept SerializerOutputCallbackConcept = requires (T clb) {
+    {clb(std::declval<const char*>(), std::declval<std::size_t>())} -> std::convertible_to<bool>;
+};
+
+
 
 struct DeserializationResult {
 public:
@@ -43,6 +50,72 @@ public:
 };
 
 namespace d {
+
+template<class ClbT> requires  SerializerOutputCallbackConcept<ClbT>
+bool outputEscapedString(const char *data, std::size_t size, ClbT && clb) {
+    const char *segStart = data;
+    std::size_t segSize = 0;
+    std::size_t counter = 0;
+    char toOutEscaped [2] = {'\\', ' '};
+    while(counter < size) {
+        switch(segStart[segSize]) {
+            case '"':
+            case '/':
+            case '\\':
+            case '\b':
+            case '\f':
+            case '\r':
+            case '\n':
+            case '\t':
+        {
+
+            switch(segStart[segSize]) {
+            case '"':  toOutEscaped[1] = '"';  break;
+            case '/':  toOutEscaped[1] = '/';  break;
+            case '\\': toOutEscaped[1] = '\\'; break;
+            case '\b': toOutEscaped[1] = 'b';  break;
+            case '\f': toOutEscaped[1] = 'f';  break;
+            case '\r': toOutEscaped[1] = 'r';  break;
+            case '\n': toOutEscaped[1] = 'n';  break;
+            case '\t': toOutEscaped[1] = 't';  break;
+            default:
+                toOutEscaped[1] == 0;
+            }
+
+            if(segSize > 0) {
+                if(!clb(segStart, segSize))  [[unlikely]] {
+                    return false;
+                }
+            }
+            if(toOutEscaped[1] != 0) [[likely]] {
+                if(!clb(toOutEscaped, 2))  [[unlikely]] {
+                    return false;
+                }
+            }
+            segSize = 0;
+            segStart = data + counter + 1;
+            break;
+        }
+        default:
+        {
+            if(segStart[segSize] < 32) [[unlikely]] {
+                return false;
+            }
+            segSize ++;
+            break;
+        }
+        }
+        counter++;
+    }
+    if(segSize > 0) {
+        if(!clb(segStart, segSize))  [[unlikely]] {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 inline bool isSpace(char a) {
     switch(a) {
     case 0x20:
