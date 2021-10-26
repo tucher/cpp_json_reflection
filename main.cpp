@@ -35,15 +35,16 @@ struct InnerStruct3 {
 
 struct CustomDateString {
     auto operator<=>(const CustomDateString&) const = default;
-    bool SerializeInternal( JSONReflection::SerializerOutputCallbackConcept auto && clb) const {
+    bool JSONSerialize( JSONReflection::SerializerOutputCallbackConcept auto && clb) const {
         char v[] = "2021-10-\n24T11:25:29Z";
         return clb(v, sizeof(v)-1);
     }
 
-    template<class InpIter> requires JSONReflection::InputIteratorConcept<InpIter>
-    bool DeserialiseInternal(InpIter begin, InpIter end) {
+    using DeserializeContainerT = string;
+    static_assert (JSONReflection::StringOutputContainerConcept<DeserializeContainerT>);
+    bool JSONDeserialise(DeserializeContainerT & cont) {
         char v[] = "2021-10\\n-24T11:25:29Z";
-        auto r = memcmp(v, & *begin, sizeof(v)-1);
+        auto r = memcmp(v, & *cont.begin(), sizeof(v)-1);
 
         return r == 0;
     }
@@ -348,7 +349,14 @@ void compileTimeTests() {
 
     static_assert (JSONReflection::d::JSONMapValue<TestFeatures::JSONMapTestType>);
 
+    static_assert (JSONReflection::StringOutputContainerConcept<std::array<char, 20>>);
+    static_assert (JSONReflection::StringOutputContainerConcept<std::vector<char>>);
+    static_assert (JSONReflection::StringOutputContainerConcept<std::list<char>>);
 
+    static_assert (JSONReflection::d::StaticContainerTypeConcept<std::array<char, 20>>);
+
+    map<string, TestFeatures::RootObject_> m;
+    m.try_emplace("fu");
 }
 /*
 template <JSONReflection::d::ConstString Str>

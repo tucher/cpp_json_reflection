@@ -190,3 +190,7 @@ Object may contain garbage half-parsed data if deserialization fails, so use som
 - String escape/unescape
 - Recursive structures?
 - Prettyfying?
+- refine string concept
+- outputEscapedString should be done in iterators, like other things
+- nulled flag
+- option for strict size/max size fixed container filling

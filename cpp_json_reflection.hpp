@@ -69,15 +69,14 @@ concept StringTypeConcept = requires (T v) {
 };
 
 template <typename T>
+concept StaticContainerTypeConcept = std::ranges::sized_range<T>;
+
+
+template <typename T>
 concept DynamicContainerTypeConcept = requires (T  v) {
         typename T::value_type;
         v.push_back(std::declval<typename T::value_type>());
         v.clear();
-};
-
-template <typename T>
-concept ReserveCapable = DynamicContainerTypeConcept<T> && requires (T  v) {
-    v.reserve(10);
 };
 
 template <typename T>
@@ -87,8 +86,10 @@ template<typename T>
 concept CustomMappable =
         !JSONWrappedValueCompatible<T>
         && requires (T val, const T&constVal) {
-    {constVal.SerializeInternal(std::declval<SerializerStubT>())} -> std::same_as<bool>; //??
-    {val.DeserialiseInternal(std::declval<char*>(), std::declval<char*>())} -> std::same_as<bool>; //??
+    typename T::DeserializeContainerT;
+    requires StringOutputContainerConcept<typename T::DeserializeContainerT>;
+    {constVal.JSONSerialize(std::declval<SerializerStubT>())} -> std::same_as<bool>; //??
+    {val.JSONDeserialise(std::declval<typename T::DeserializeContainerT &>())} -> std::same_as<bool>; //??
 };
 
 template<typename T>
@@ -166,7 +167,7 @@ class J<Src, Str> {
 public:
     using JSONValueKind = d::JSONValueKindEnumPlain;
     static constexpr auto FieldName = Str;
-    static_assert(FieldName.check() == true, "Please, use printable chars as object keys");
+    static_assert(FieldName.check() == true, "Please, use printable chars in values keys");
 
     operator Src&() {
         return content;
@@ -228,7 +229,7 @@ public:
             auto wr = [&clb](const char *data, std::size_t size) {
                 return d::outputEscapedString(data, size, std::forward<std::decay_t<decltype(clb)>>(clb));
             };
-            if(!content.SerializeInternal(std::forward<std::decay_t<decltype(wr)>>(wr)))  [[unlikely]] {
+            if(!content.JSONSerialize(std::forward<std::decay_t<decltype(wr)>>(wr)))  [[unlikely]] {
                 return false;
             }
             if(char v[] = "\""; !clb(v, sizeof(v)-1)) [[unlikely]] {
@@ -255,7 +256,7 @@ public:
     }
 
     template<class InpIter> requires InputIteratorConcept<InpIter>
-    bool DeserialiseInternal(InpIter & begin, const InpIter & end, DeserializationResult & ctx) {
+    bool DeserializeInternal(InpIter & begin, const InpIter & end, DeserializationResult & ctx) {
         if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
             return false;
         }
@@ -309,46 +310,17 @@ public:
                 return false;
             }
         } else if constexpr(d::StringTypeConcept<Src>) {
-            if(!d::skipWhiteSpaceTill(begin, end, '"', ctx))
-                return false;
-
-            auto strBegin = begin;
-            auto strEnd = d::findJsonStringEnd(begin, end, ctx);
-            if(strEnd == end) [[unlikely]]{
-                ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
+            return d::extractJSString(begin, end, ctx, content);
+        }  else if constexpr(d::CustomMappable<Src>) {
+            typename Src::DeserializeContainerT container;
+            if(!d::extractJSString(begin, end, ctx, container)) [[unlikely]] {
                 return false;
             }
-            begin = strEnd;
-            begin ++;
-            if(begin == end) [[unlikely]]{
-                ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
-                return false;
-            }
-
-            if constexpr (d::DynamicStringTypeConcept<Src>) { //dynamic
-                content.clear();
-                while(strBegin != strEnd) {
-                    content.push_back(*strBegin);
-                    strBegin ++;
-                }
+            if(!content.JSONDeserialise(container)) [[unlikely]]{
+                ctx.setError(DeserializationResult::CUSTOM_MAPPER_ERROR, end - begin);
+            } else {
                 return true;
-            } else { // static string
-                std::size_t index = 0;
-                while(strBegin != strEnd) {
-                    content[index] = *strBegin;
-                    strBegin ++;
-                    index ++;
-                    if(index > content.size()) [[unlikely]] {
-                        ctx.setError(DeserializationResult::FIXED_SIZE_CONTAINER_OVERFLOW, end - begin);
-                        return false;
-                    }
-                }
-                for(; index < content.size(); index ++) {
-                    content[index] = '\0';
-                }
             }
-
-            return true;
         } else if constexpr(std::same_as<double, Src> || std::same_as<std::int64_t, Src>) {
              char buf[40];
              std::size_t index = 0;
@@ -373,27 +345,6 @@ public:
              }
              ctx.setError(DeserializationResult::ILLFORMED_NUMBER, end - begin);
              return false;
-        } else if constexpr(d::CustomMappable<Src>) {
-            if(!d::skipWhiteSpaceTill(begin, end, '"', ctx))  [[unlikely]]{
-                return false;
-            }
-
-            auto strBegin = begin;
-            auto strEnd = d::findJsonStringEnd(begin, end, ctx);
-            if(strEnd == end)  [[unlikely]] {
-                ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
-                return false;
-            }
-            begin = strEnd;
-            begin ++;
-            if(begin == end) [[unlikely]] {
-                return false;
-            }
-            if(!content.DeserialiseInternal(strBegin, strEnd)) [[unlikely]]{
-                ctx.setError(DeserializationResult::CUSTOM_MAPPER_ERROR, end - begin);
-            } else {
-                return true;
-            }
         }
         ctx.setError(DeserializationResult::INTERNAL_ERROR, end - begin);
         return false;
@@ -406,7 +357,7 @@ class J<Src, Str> : public Src{
 public:
     using JSONValueKind = d::JSONValueKindEnumArray;
     static constexpr auto FieldName = Str;
-    static_assert(FieldName.check() == true, "Please, use printable chars as object keys");
+    static_assert(FieldName.check() == true, "Please, use printable chars in values keys");
 
     Src& operator = (const Src& other) {
         return static_cast<Src &>(*this) = other;
@@ -439,7 +390,7 @@ public:
     }
 
     template<class InpIter> requires InputIteratorConcept<InpIter>
-    bool DeserialiseInternal(InpIter & begin, const InpIter & end, DeserializationResult & ctx) {
+    bool DeserializeInternal(InpIter & begin, const InpIter & end, DeserializationResult & ctx) {
         if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
             return false;
         }
@@ -452,10 +403,7 @@ public:
         }
         if constexpr (d::DynamicContainerTypeConcept<Src>) {
             static_cast<Src&>(*this).clear();
-            if constexpr (d::ReserveCapable<Src>) {
-//                static_cast<Src&>(*this).reserve(1000); //TODO via options
-            }
-            ItemType newItem;
+
             while(begin != end) {
                 if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
                     return false;
@@ -464,21 +412,14 @@ public:
                     begin ++;
                     return true;
                 }
+                ItemType & newItem = static_cast<Src&>(*this).emplace_back();
                 if(end-begin>=5 && *(begin+0) == 'n'&&*(begin+1) == 'u'&&*(begin+2) == 'l'&&*(begin+3) == 'l'&&d::isPlainEnd(*(begin+4))) {
                     begin += 4;
-                    newItem = ItemType();
                 } else {
-                    bool ok;
-                    if constexpr(!d::CustomMappable<ItemType>) {
-                        ok = newItem.DeserialiseInternal(begin, end, ctx);
-                    } else {
-                        ok = newItem.DeserialiseInternal(begin, end);
-                    }
-                    if(!ok) {
+                    if(!newItem.DeserializeInternal(begin, end, ctx)) {
                         return false;
                     }
                 }
-                static_cast<Src&>(*this).push_back(newItem);
 
                 if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
                     return false;
@@ -488,33 +429,32 @@ public:
                 }
             }
         } else {
-            int counter = 0;
+            auto containerI = static_cast<Src&>(*this).begin();
 
             while(begin != end) {
                 if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
                     return false;
                 }
                 if(*begin == ']') {
+                    if(containerI != static_cast<const Src&>(*this).end()) {
+                        ctx.setError(DeserializationResult::FIXED_SIZE_CONTAINER_UNDERFLOW, end - begin);
+                        return false;
+                    }
                     begin ++;
                     return true;
                 }
-                if(counter > static_cast<const Src&>(*this).size()) {
+                if(containerI == static_cast<const Src&>(*this).end()) {
                     ctx.setError(DeserializationResult::FIXED_SIZE_CONTAINER_OVERFLOW, end - begin);
                     return false;
                 }
                 if(end-begin>=5 && *(begin+0) == 'n'&&*(begin+1) == 'u'&&*(begin+2) == 'l'&&*(begin+3) == 'l'&&d::isPlainEnd(*(begin+4))) {
                     begin += 4;
-                    ItemType & newItem = static_cast<Src&>(*this)[counter];
-                    newItem = ItemType();
+                    *containerI = ItemType{};
                 } else {
-                    ItemType & newItem = static_cast<Src&>(*this)[counter];
-
-                    bool ok = newItem.DeserialiseInternal(begin, end, ctx);
-                    if(!ok) {
+                    if(!(*containerI).DeserializeInternal(begin, end, ctx)) {
                         return false;
                     }
                 }
-                counter ++;
 
                 if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
                     return false;
@@ -536,7 +476,7 @@ class J<Src, Str> : public Src{
 public:
     using JSONValueKind = d::JSONValueKindEnumMap;
     static constexpr auto FieldName = Str;
-    static_assert(FieldName.check() == true, "Please, use printable chars as object keys");
+    static_assert(FieldName.check() == true, "Please, use printable chars in values keys");
 
     Src& operator = (const Src& other) {
         return static_cast<Src &>(*this) = other;
@@ -580,7 +520,7 @@ public:
     }
 
     template<class InpIter> requires InputIteratorConcept<InpIter>
-    bool DeserialiseInternal(InpIter & begin, const InpIter & end, DeserializationResult & ctx) {
+    bool DeserializeInternal(InpIter & begin, const InpIter & end, DeserializationResult & ctx) {
         if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
             return false;
         }
@@ -592,7 +532,7 @@ public:
             return false;
         }
         static_cast<Src&>(*this).clear();
-        ItemType newItem;
+
         while(begin != end) {
             if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
                 return false;
@@ -601,18 +541,11 @@ public:
                 begin ++;
                 return true;
             }
-
-            if(!d::skipWhiteSpaceTill(begin, end, '"', ctx)) [[unlikely]] {
+            KeyType keyContainer;
+            if(!d::extractJSString(begin, end, ctx, keyContainer)) [[unlikely]] {
                 return false;
             }
-            InpIter keyBegin = begin;
 
-            InpIter keyEnd = d::findJsonStringEnd(keyBegin, end, ctx);
-            if(keyEnd == end) [[unlikely]] {
-                return false;
-            }
-            begin = keyEnd;
-            begin ++;
             if(begin == end) [[unlikely]] {
                 ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
                 return false;
@@ -624,19 +557,14 @@ public:
                 return false;
             }
 
+            auto kvI = static_cast<Src&>(*this).try_emplace(keyContainer).first;
             if(end-begin>=5 && *(begin+0) == 'n'&&*(begin+1) == 'u'&&*(begin+2) == 'l'&&*(begin+3) == 'l'&&d::isPlainEnd(*(begin+4))) {
                 begin += 4;
             } else {
-                bool ok;
-                if constexpr(!d::CustomMappable<ItemType>) {
-                    ok = newItem.DeserialiseInternal(begin, end, ctx);
-                } else {
-                    ok = newItem.DeserialiseInternal(begin, end);
-                }
-                if(!ok) {
+                ItemType  & newItem = kvI->second;
+                if(! newItem.DeserializeInternal(begin, end, ctx)) {
                     return false;
                 }
-                static_cast<Src&>(*this).insert({KeyType(keyBegin, keyEnd), newItem});
             }
 
             if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
@@ -759,11 +687,7 @@ class J<Src, Str> : public Src {
                     if constexpr(KeyIndexType::skip == false) {
                         using FieldType = pfr::tuple_element_t<KeyIndexType::OriginalIndex, Src>;
                         FieldType & f = pfr::get<KeyIndexType::OriginalIndex>(static_cast<Src &>(*this));
-                        if constexpr(!d::CustomMappable<FieldType>) {
-                            return f.DeserialiseInternal(begin, end, ctx);
-                        } else {
-                            return f.DeserialiseInternal(begin, end);
-                        }
+                        return f.DeserializeInternal(begin, end, ctx);
                     } else
                         return false;
                 }
@@ -774,7 +698,7 @@ class J<Src, Str> : public Src {
 public:
     using JSONValueKind = d::JSONValueKindEnumObject;
     static constexpr auto FieldName = Str;
-    static_assert(FieldName.check() == true, "Please, use printable chars as object keys");
+    static_assert(FieldName.check() == true, "Please, use printable chars in values keys");
 
     J(const Src & other): Src(other) {}
     J() = default;
@@ -844,7 +768,7 @@ public:
     template<class InpIter> requires InputIteratorConcept<InpIter>
     DeserializationResult Deserialize(InpIter begin, const InpIter & end) {
         DeserializationResult ctx(end-begin);
-        bool ret = DeserialiseInternal(begin, end, ctx);
+        bool ret = DeserializeInternal(begin, end, ctx);
         return ctx;
     }
 
@@ -852,12 +776,12 @@ public:
     DeserializationResult Deserialize(const ContainterT & c) {
         DeserializationResult ctx(c.size());
         auto b = c.begin();
-        bool ret =  DeserialiseInternal(b, c.end(), ctx);
+        bool ret =  DeserializeInternal(b, c.end(), ctx);
         return ctx;
     }
 
     template<class InpIter> requires InputIteratorConcept<InpIter>
-    bool DeserialiseInternal(InpIter & begin, const InpIter & end, DeserializationResult & ctx) {
+    bool DeserializeInternal(InpIter & begin, const InpIter & end, DeserializationResult & ctx) {
         if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
             return false;
         }

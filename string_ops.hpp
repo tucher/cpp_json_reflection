@@ -1,5 +1,5 @@
 #include <iterator>
-
+#include <ranges>
 namespace JSONReflection {
 
 template<typename InpIter>
@@ -13,6 +13,9 @@ concept SerializerOutputCallbackConcept = requires (T clb) {
     {clb(std::declval<const char*>(), std::declval<std::size_t>())} -> std::convertible_to<bool>;
 };
 
+template<typename T>
+concept StringOutputContainerConcept =  std::ranges::output_range<T, char> && std::ranges::forward_range<T>
+        && std::same_as<std::ranges::range_value_t<T>, char>;
 
 
 struct DeserializationResult {
@@ -26,7 +29,8 @@ public:
         CUSTOM_MAPPER_ERROR,
         INTERNAL_ERROR,
         SKIPPING_MAX_RECURSION,
-        SKIPPING_ERROR
+        SKIPPING_ERROR,
+        FIXED_SIZE_CONTAINER_UNDERFLOW
     };
 private:
     ErrorT error = NO_ERROR;
@@ -60,7 +64,6 @@ bool outputEscapedString(const char *data, std::size_t size, ClbT && clb) {
     while(counter < size) {
         switch(segStart[segSize]) {
             case '"':
-            case '/':
             case '\\':
             case '\b':
             case '\f':
@@ -71,7 +74,6 @@ bool outputEscapedString(const char *data, std::size_t size, ClbT && clb) {
 
             switch(segStart[segSize]) {
             case '"':  toOutEscaped[1] = '"';  break;
-            case '/':  toOutEscaped[1] = '/';  break;
             case '\\': toOutEscaped[1] = '\\'; break;
             case '\b': toOutEscaped[1] = 'b';  break;
             case '\f': toOutEscaped[1] = 'f';  break;
@@ -233,6 +235,55 @@ InpIter findJsonStringEnd(InpIter begin, const InpIter & end, DeserializationRes
     }
     ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
     return end;
+}
+
+template<class InpIter, class OutputContainerT> requires InputIteratorConcept<InpIter> && StringOutputContainerConcept<OutputContainerT>
+bool extractJSString(InpIter begin, const InpIter & end, DeserializationResult & ctx, OutputContainerT & outputContainer) {
+    if(!d::skipWhiteSpaceTill(begin, end, '"', ctx)) [[unlikely]]{
+        return false;
+    }
+    auto outputI = outputContainer.begin();
+//    auto outputEnd =
+    return false;
+    //            if(!d::skipWhiteSpaceTill(begin, end, '"', ctx)) [[unlikely]]{
+    //                return false;
+    //            }
+
+    //            auto strBegin = begin;
+    //            auto strEnd = d::findJsonStringEnd(begin, end, ctx);
+    //            if(strEnd == end) [[unlikely]]{
+    //                ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
+    //                return false;
+    //            }
+    //            begin = strEnd;
+    //            begin ++;
+    //            if(begin == end) [[unlikely]]{
+    //                ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
+    //                return false;
+    //            }
+
+    //            if constexpr (d::DynamicStringTypeConcept<Src>) { //dynamic
+    //                content.clear();
+    //                while(strBegin != strEnd) {
+    //                    content.push_back(*strBegin);
+    //                    strBegin ++;
+    //                }
+    //                return true;
+    //            } else { // static string
+    //                std::size_t index = 0;
+    //                while(strBegin != strEnd) {
+    //                    content[index] = *strBegin;
+    //                    strBegin ++;
+    //                    index ++;
+    //                    if(index > content.size()) [[unlikely]] {
+    //                        ctx.setError(DeserializationResult::FIXED_SIZE_CONTAINER_OVERFLOW, end - begin);
+    //                        return false;
+    //                    }
+    //                }
+    //                for(; index < content.size(); index ++) {
+    //                    content[index] = '\0';
+    //                }
+    //            }
 }
 
 static inline bool is_integer(char c) {
