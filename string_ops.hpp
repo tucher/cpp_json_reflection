@@ -254,7 +254,7 @@ bool extractJSString(InpIter & currentPos, const InpIter & end, DeserializationR
 //    auto outputEnd =
     auto inserter = [&outputContainer, &outputI] (auto b, auto e) -> bool {
         if constexpr (!DynamicContainerTypeConcept<OutputContainerT>) {
-            if(e-b <= outputContainer.end() - outputI) {
+            if(e-b <= outputContainer.end() - outputI - 1) {
                 outputI = std::copy(b, e, outputI);
                 return true;
             }

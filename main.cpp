@@ -80,7 +80,7 @@ int main()
 {
     {
         char inp[] = "  \"blabla\\nfuu\\u03FF \"  ";
-        string output;
+        std::array<char, 30> output;
         JSONReflection::DeserializationResult ctx(sizeof (inp)-1);
         char * i = inp;
         bool r = JSONReflection::d::extractJSString(i, inp+sizeof (inp)-1, ctx, output);
