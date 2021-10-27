@@ -265,7 +265,7 @@ bool extractJSString(InpIter & currentPos, const InpIter & end, DeserializationR
         }
     };
     auto rangeBegin = currentPos;
-    for(; currentPos != end; currentPos ++) {
+    for(; currentPos != end; ) {
         auto c = *currentPos;
         if(c == '"') {
             if(currentPos - rangeBegin > 0) {
@@ -374,6 +374,8 @@ bool extractJSString(InpIter & currentPos, const InpIter & end, DeserializationR
             }
             rangeBegin = currentPos;
 
+        } else {
+            currentPos++;
         }
     }
     if(currentPos == end) [[unlikely]] {
@@ -382,10 +384,8 @@ bool extractJSString(InpIter & currentPos, const InpIter & end, DeserializationR
     }
 
     if constexpr (!DynamicContainerTypeConcept<OutputContainerT>) {
-        while(outputI!= outputContainer.end()) {
-            *outputI = 0;
-            outputI++;
-        }
+        *outputI = 0;
+        outputI++;
     }
     if(!d::skipWhiteSpace(currentPos, end, ctx)) [[unlikely]]{
         return false;
@@ -397,45 +397,6 @@ bool extractJSString(InpIter & currentPos, const InpIter & end, DeserializationR
 
 
     return true;
-    //            if(!d::skipWhiteSpaceTill(begin, end, '"', ctx)) [[unlikely]]{
-    //                return false;
-    //            }
-
-    //            auto strBegin = begin;
-    //            auto strEnd = d::findJsonStringEnd(begin, end, ctx);
-    //            if(strEnd == end) [[unlikely]]{
-    //                ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
-    //                return false;
-    //            }
-    //            begin = strEnd;
-    //            begin ++;
-    //            if(begin == end) [[unlikely]]{
-    //                ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
-    //                return false;
-    //            }
-
-    //            if constexpr (d::DynamicStringTypeConcept<Src>) { //dynamic
-    //                content.clear();
-    //                while(strBegin != strEnd) {
-    //                    content.push_back(*strBegin);
-    //                    strBegin ++;
-    //                }
-    //                return true;
-    //            } else { // static string
-    //                std::size_t index = 0;
-    //                while(strBegin != strEnd) {
-    //                    content[index] = *strBegin;
-    //                    strBegin ++;
-    //                    index ++;
-    //                    if(index > content.size()) [[unlikely]] {
-    //                        ctx.setError(DeserializationResult::FIXED_SIZE_CONTAINER_OVERFLOW, end - begin);
-    //                        return false;
-    //                    }
-    //                }
-    //                for(; index < content.size(); index ++) {
-    //                    content[index] = '\0';
-    //                }
-    //            }
 }
 
 static inline bool is_integer(char c) {
