@@ -55,6 +55,14 @@ public:
 
 namespace d {
 
+
+template <typename T>
+concept DynamicContainerTypeConcept = requires (T  v) {
+        typename T::value_type;
+        v.push_back(std::declval<typename T::value_type>());
+        v.clear();
+};
+
 template<class ClbT> requires  SerializerOutputCallbackConcept<ClbT>
 bool outputEscapedString(const char *data, std::size_t size, ClbT && clb) {
     const char *segStart = data;
@@ -238,13 +246,157 @@ InpIter findJsonStringEnd(InpIter begin, const InpIter & end, DeserializationRes
 }
 
 template<class InpIter, class OutputContainerT> requires InputIteratorConcept<InpIter> && StringOutputContainerConcept<OutputContainerT>
-bool extractJSString(InpIter begin, const InpIter & end, DeserializationResult & ctx, OutputContainerT & outputContainer) {
-    if(!d::skipWhiteSpaceTill(begin, end, '"', ctx)) [[unlikely]]{
+bool extractJSString(InpIter & currentPos, const InpIter & end, DeserializationResult & ctx, OutputContainerT & outputContainer) {
+    if(!d::skipWhiteSpaceTill(currentPos, end, '"', ctx)) [[unlikely]]{
         return false;
     }
     auto outputI = outputContainer.begin();
 //    auto outputEnd =
-    return false;
+    auto inserter = [&outputContainer, &outputI] (auto b, auto e) -> bool {
+        if constexpr (!DynamicContainerTypeConcept<OutputContainerT>) {
+            if(e-b <= outputContainer.end() - outputI) {
+                outputI = std::copy(b, e, outputI);
+                return true;
+            }
+            return false;
+        }  else {
+            outputContainer.insert(outputContainer.end(), b, e);
+            return true;
+        }
+    };
+    auto rangeBegin = currentPos;
+    for(; currentPos != end; currentPos ++) {
+        auto c = *currentPos;
+        if(c == '"') {
+            if(currentPos - rangeBegin > 0) {
+                if(!inserter(rangeBegin, currentPos)) {
+                    ctx.setError(DeserializationResult::FIXED_SIZE_CONTAINER_OVERFLOW, end - currentPos);
+                    return false;
+                }
+            }
+            currentPos ++;
+            break;
+        } else if (c == '\\') {
+
+            if(currentPos - rangeBegin > 0) {
+                if(!inserter(rangeBegin, currentPos)) {
+                    ctx.setError(DeserializationResult::FIXED_SIZE_CONTAINER_OVERFLOW, end - currentPos);
+                    return false;
+                }
+            }
+            currentPos++;
+            if(currentPos == end) [[unlikely]] {
+                ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - currentPos);
+                return false;
+            }
+
+
+            switch (*currentPos) {
+            /* Allowed escaped symbols */
+            case '\"':
+            case '/':
+            case '\\':
+            case 'b':
+            case 'f':
+            case 'r':
+            case 'n':
+            case 't':
+            {
+                char unescaped[2] = {0, 0};
+                switch (*currentPos) {
+                case '"':  unescaped[0] = '"'; break;
+                case '/':  unescaped[0] = '/'; break;
+                case '\\': unescaped[0] = '\\'; break;
+                case 'b':  unescaped[0] = '\b'; break;
+                case 'f':  unescaped[0] = '\f'; break;
+                case 'r':  unescaped[0] = '\r'; break;
+                case 'n':  unescaped[0] = '\n'; break;
+                case 't':  unescaped[0] = '\t'; break;
+                }
+
+                if(!inserter(unescaped, unescaped+1)) {
+                    ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - currentPos);
+                    return false;
+                }
+                currentPos++;
+            }
+                break;
+                /* Allows escaped symbol \uXXXX */
+            case 'u': {
+
+                currentPos++;
+                std::array<char, 4> utf8bytes;
+                auto utfI = utf8bytes.begin();
+                while(true) {
+                    if(currentPos == end) [[unlikely]] {
+                        ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - currentPos);
+                        return false;
+                    }
+                    if(utfI ==  utf8bytes.end())[[unlikely]] {
+                        break;
+                    }
+                    char currChar = *currentPos;
+                    if (currChar >= 48 && currChar <= 57) {     /* 0-9 */
+                        *utfI = currChar-'0';
+                    } else if(currChar >= 65 && currChar <= 70){     /* A-F */
+                        *utfI = currChar-'A' + 10;
+                    } else if(currChar >= 97 && currChar <= 102) { /* a-f */
+                        *utfI = currChar-'a' + 10;
+                    }
+                    else {
+                        ctx.setError(DeserializationResult::UNEXPECTED_SYMBOL, end - currentPos);
+                        return false;
+                    }
+
+                    currentPos++;
+                    utfI ++;
+                }
+                if(currentPos == end) [[unlikely]] {
+                    ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - currentPos);
+                    return false;
+                }
+                char unescaped[3] = {0, 0, 0};
+                unescaped[0] |= (utf8bytes[0] << 4);
+                unescaped[0] |= utf8bytes[1];
+                unescaped[1] |= (utf8bytes[2] << 4);
+                unescaped[1] |= utf8bytes[3];
+                if(!inserter(unescaped, unescaped+2)) {
+                    ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - currentPos);
+                    return false;
+                }
+
+            }
+                break;
+                /* Unexpected symbol */
+            default:
+                ctx.setError(DeserializationResult::UNEXPECTED_SYMBOL, end - currentPos);
+                return false;
+            }
+            rangeBegin = currentPos;
+
+        }
+    }
+    if(currentPos == end) [[unlikely]] {
+        ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - currentPos);
+        return false;
+    }
+
+    if constexpr (!DynamicContainerTypeConcept<OutputContainerT>) {
+        while(outputI!= outputContainer.end()) {
+            *outputI = 0;
+            outputI++;
+        }
+    }
+    if(!d::skipWhiteSpace(currentPos, end, ctx)) [[unlikely]]{
+        return false;
+    }
+    if(!isPlainEnd(*currentPos)) {
+        ctx.setError(DeserializationResult::UNEXPECTED_SYMBOL, end - currentPos);
+        return false;
+    }
+
+
+    return true;
     //            if(!d::skipWhiteSpaceTill(begin, end, '"', ctx)) [[unlikely]]{
     //                return false;
     //            }

@@ -78,6 +78,14 @@ int twitterJsonPerfTest();
 
 int main()
 {
+    {
+        char inp[] = "  \"blabla\\nfuu\\u03FF \"  ";
+        string output;
+        JSONReflection::DeserializationResult ctx(sizeof (inp)-1);
+        char * i = inp;
+        bool r = JSONReflection::d::extractJSString(i, inp+sizeof (inp)-1, ctx, output);
+        r = false;
+    }
 //    return twitterJsonPerfTest();
 //    return canadaJsonPerfTest();
     constexpr char inp3const[]{R"(

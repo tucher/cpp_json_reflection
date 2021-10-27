@@ -72,12 +72,6 @@ template <typename T>
 concept StaticContainerTypeConcept = std::ranges::sized_range<T>;
 
 
-template <typename T>
-concept DynamicContainerTypeConcept = requires (T  v) {
-        typename T::value_type;
-        v.push_back(std::declval<typename T::value_type>());
-        v.clear();
-};
 
 template <typename T>
 concept DynamicStringTypeConcept = StringTypeConcept<T> && DynamicContainerTypeConcept<T>;
