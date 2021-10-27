@@ -456,6 +456,7 @@ public:
                 if(*begin == ',') {
                     begin ++;
                 }
+                containerI ++;
             }
         }
         ctx.setError(DeserializationResult::INTERNAL_ERROR, end - begin);
