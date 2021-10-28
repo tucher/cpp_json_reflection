@@ -150,37 +150,22 @@ inline bool isPlainEnd(char a) {
     }
     return false;
 }
-bool skipWhiteSpace(InputIteratorConcept auto & begin, const InputIteratorConcept auto & end, DeserializationResult & ctx) {
+inline bool skipWhiteSpace(InputIteratorConcept auto & begin, const InputIteratorConcept auto & end, DeserializationResult & ctx) {
+    if (begin == end) [[unlikely]] {
+        ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
+        return false;
+    }
     while(isSpace(*begin)) {
         begin ++;
         if(begin == end) [[unlikely]] {
+            ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
             break;
         }
     }
-    if (begin == end) [[unlikely]] {
-        ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
-        return false;
-    }
-        return true;
+    return true;
 }
 
-bool skipTillPlainEnd(InputIteratorConcept auto & begin, const InputIteratorConcept auto & end, DeserializationResult & ctx) {
-    while(!isPlainEnd(*begin)) {
-        begin ++;
-        if(begin == end) [[unlikely]] {
-            break;
-        }
-    }
-    if (begin == end) [[unlikely]] {
-        ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
-        return false;
-    }
-        return true;
-}
-
-
-
-bool skipWhiteSpaceTill(InputIteratorConcept auto & begin, const InputIteratorConcept auto & end, char s, DeserializationResult & ctx) {
+inline bool skipWhiteSpaceTill(InputIteratorConcept auto & begin, const InputIteratorConcept auto & end, char s, DeserializationResult & ctx) {
     if(!skipWhiteSpace(begin, end, ctx)) [[unlikely]]{
         return false;
     }
@@ -191,9 +176,10 @@ bool skipWhiteSpaceTill(InputIteratorConcept auto & begin, const InputIteratorCo
             return false;
         }
             return true;
+    } else {
+        ctx.setError(DeserializationResult::UNEXPECTED_SYMBOL, end - begin);
+        return false;
     }
-    ctx.setError(DeserializationResult::UNEXPECTED_SYMBOL, end - begin);
-    return false;
 }
 
 template<class InpIter> requires InputIteratorConcept<InpIter>
@@ -387,14 +373,6 @@ bool extractJSString(InpIter & currentPos, const InpIter & end, DeserializationR
         *outputI = 0;
         outputI++;
     }
-    if(!d::skipWhiteSpace(currentPos, end, ctx)) [[unlikely]]{
-        return false;
-    }
-    if(!isPlainEnd(*currentPos)) {
-        ctx.setError(DeserializationResult::UNEXPECTED_SYMBOL, end - currentPos);
-        return false;
-    }
-
 
     return true;
 }

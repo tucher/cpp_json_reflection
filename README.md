@@ -194,3 +194,5 @@ Object may contain garbage half-parsed data if deserialization fails, so use som
 - outputEscapedString should be done in iterators, like other things
 - nulled flag
 - option for strict size/max size fixed container filling
+- make it work with clang 13
+- add API for fast int parsing to use by user in custom objects
