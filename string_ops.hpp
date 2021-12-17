@@ -17,8 +17,17 @@ template<typename T>
 concept StringOutputContainerConcept =  std::ranges::output_range<T, char> && std::ranges::forward_range<T>
         && std::same_as<std::ranges::range_value_t<T>, char>;
 
+enum class ParseFlags: std::uint32_t {
+    DEFAULT = 0,
+    EXCESS_FIELDS_PROHIBITED = std::underlying_type_t<ParseFlags>(1) << 1,
+    ALL_FIELDS_REQUIRED =      std::underlying_type_t<ParseFlags>(1) << 2,
+};
 
-struct DeserializationResult {
+inline constexpr ParseFlags operator| (const ParseFlags &l, const ParseFlags &r) {
+    return ParseFlags(static_cast<std::underlying_type_t<ParseFlags>>(l) | static_cast<std::underlying_type_t<ParseFlags>>(r));
+}
+
+struct DeserializationContext {
 public:
     enum ErrorT {
         NO_ERROR,
@@ -30,15 +39,20 @@ public:
         INTERNAL_ERROR,
         SKIPPING_MAX_RECURSION,
         SKIPPING_ERROR,
-        FIXED_SIZE_CONTAINER_UNDERFLOW
+        FIXED_SIZE_CONTAINER_UNDERFLOW,
+        EXCESS_FIELD,
+        MISSING_FIELD
     };
+
 private:
     ErrorT error = NO_ERROR;
     std::size_t offsetFromEnd = 0;
     std::size_t totalSize = 0;
+    ParseFlags m_flags = ParseFlags::DEFAULT;
 public:
-    DeserializationResult(std::size_t s) {
+    DeserializationContext(std::size_t s, ParseFlags flags = ParseFlags::DEFAULT) {
         totalSize = s;
+        m_flags = flags;
     }
     void setError(ErrorT err, std::size_t offs) {
         error = err;
@@ -50,6 +64,9 @@ public:
 
     std::size_t getErrorOffset() {
         return totalSize-offsetFromEnd;
+    }
+    bool flag(ParseFlags flag) {
+        return static_cast<std::underlying_type_t<ParseFlags>>(m_flags) & static_cast<std::underlying_type_t<ParseFlags>>(flag);
     }
 };
 
@@ -150,40 +167,40 @@ inline bool isPlainEnd(char a) {
     }
     return false;
 }
-inline bool skipWhiteSpace(InputIteratorConcept auto & begin, const InputIteratorConcept auto & end, DeserializationResult & ctx) {
+inline bool skipWhiteSpace(InputIteratorConcept auto & begin, const InputIteratorConcept auto & end, DeserializationContext & ctx) {
     if (begin == end) [[unlikely]] {
-        ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
+        ctx.setError(DeserializationContext::UNEXPECTED_END_OF_DATA, end - begin);
         return false;
     }
     while(isSpace(*begin)) {
         begin ++;
         if(begin == end) [[unlikely]] {
-            ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
+            ctx.setError(DeserializationContext::UNEXPECTED_END_OF_DATA, end - begin);
             break;
         }
     }
     return true;
 }
 
-inline bool skipWhiteSpaceTill(InputIteratorConcept auto & begin, const InputIteratorConcept auto & end, char s, DeserializationResult & ctx) {
+inline bool skipWhiteSpaceTill(InputIteratorConcept auto & begin, const InputIteratorConcept auto & end, char s, DeserializationContext & ctx) {
     if(!skipWhiteSpace(begin, end, ctx)) [[unlikely]]{
         return false;
     }
     if(*begin == s) {
         begin ++;
         if (begin == end) [[unlikely]] {
-            ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
+            ctx.setError(DeserializationContext::UNEXPECTED_END_OF_DATA, end - begin);
             return false;
         }
             return true;
     } else {
-        ctx.setError(DeserializationResult::UNEXPECTED_SYMBOL, end - begin);
+        ctx.setError(DeserializationContext::UNEXPECTED_SYMBOL, end - begin);
         return false;
     }
 }
 
 template<class InpIter> requires InputIteratorConcept<InpIter>
-InpIter findJsonStringEnd(InpIter begin, const InpIter & end, DeserializationResult & ctx) {
+InpIter findJsonStringEnd(InpIter begin, const InpIter & end, DeserializationContext & ctx) {
     for(; begin != end; begin ++) {
         char c = reinterpret_cast<char>(*begin);
         if(c == '"') {
@@ -222,17 +239,17 @@ InpIter findJsonStringEnd(InpIter begin, const InpIter & end, DeserializationRes
                 break;
                 /* Unexpected symbol */
             default:
-                ctx.setError(DeserializationResult::UNEXPECTED_SYMBOL, end - begin);
+                ctx.setError(DeserializationContext::UNEXPECTED_SYMBOL, end - begin);
                 return end;
             }
         }
     }
-    ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
+    ctx.setError(DeserializationContext::UNEXPECTED_END_OF_DATA, end - begin);
     return end;
 }
 
 template<class InpIter, class OutputContainerT> requires InputIteratorConcept<InpIter> && StringOutputContainerConcept<OutputContainerT>
-bool extractJSString(InpIter & currentPos, const InpIter & end, DeserializationResult & ctx, OutputContainerT & outputContainer) {
+bool extractJSString(InpIter & currentPos, const InpIter & end, DeserializationContext & ctx, OutputContainerT & outputContainer) {
     if(!d::skipWhiteSpaceTill(currentPos, end, '"', ctx)) [[unlikely]]{
         return false;
     }
@@ -256,7 +273,7 @@ bool extractJSString(InpIter & currentPos, const InpIter & end, DeserializationR
         if(c == '"') {
             if(currentPos - rangeBegin > 0) {
                 if(!inserter(rangeBegin, currentPos)) {
-                    ctx.setError(DeserializationResult::FIXED_SIZE_CONTAINER_OVERFLOW, end - currentPos);
+                    ctx.setError(DeserializationContext::FIXED_SIZE_CONTAINER_OVERFLOW, end - currentPos);
                     return false;
                 }
             }
@@ -266,13 +283,13 @@ bool extractJSString(InpIter & currentPos, const InpIter & end, DeserializationR
 
             if(currentPos - rangeBegin > 0) {
                 if(!inserter(rangeBegin, currentPos)) {
-                    ctx.setError(DeserializationResult::FIXED_SIZE_CONTAINER_OVERFLOW, end - currentPos);
+                    ctx.setError(DeserializationContext::FIXED_SIZE_CONTAINER_OVERFLOW, end - currentPos);
                     return false;
                 }
             }
             currentPos++;
             if(currentPos == end) [[unlikely]] {
-                ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - currentPos);
+                ctx.setError(DeserializationContext::UNEXPECTED_END_OF_DATA, end - currentPos);
                 return false;
             }
 
@@ -301,7 +318,7 @@ bool extractJSString(InpIter & currentPos, const InpIter & end, DeserializationR
                 }
 
                 if(!inserter(unescaped, unescaped+1)) {
-                    ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - currentPos);
+                    ctx.setError(DeserializationContext::UNEXPECTED_END_OF_DATA, end - currentPos);
                     return false;
                 }
                 currentPos++;
@@ -315,7 +332,7 @@ bool extractJSString(InpIter & currentPos, const InpIter & end, DeserializationR
                 auto utfI = utf8bytes.begin();
                 while(true) {
                     if(currentPos == end) [[unlikely]] {
-                        ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - currentPos);
+                        ctx.setError(DeserializationContext::UNEXPECTED_END_OF_DATA, end - currentPos);
                         return false;
                     }
                     if(utfI ==  utf8bytes.end())[[unlikely]] {
@@ -330,7 +347,7 @@ bool extractJSString(InpIter & currentPos, const InpIter & end, DeserializationR
                         *utfI = currChar-'a' + 10;
                     }
                     else {
-                        ctx.setError(DeserializationResult::UNEXPECTED_SYMBOL, end - currentPos);
+                        ctx.setError(DeserializationContext::UNEXPECTED_SYMBOL, end - currentPos);
                         return false;
                     }
 
@@ -338,7 +355,7 @@ bool extractJSString(InpIter & currentPos, const InpIter & end, DeserializationR
                     utfI ++;
                 }
                 if(currentPos == end) [[unlikely]] {
-                    ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - currentPos);
+                    ctx.setError(DeserializationContext::UNEXPECTED_END_OF_DATA, end - currentPos);
                     return false;
                 }
                 char unescaped[3] = {0, 0, 0};
@@ -347,7 +364,7 @@ bool extractJSString(InpIter & currentPos, const InpIter & end, DeserializationR
                 unescaped[1] |= (utf8bytes[2] << 4);
                 unescaped[1] |= utf8bytes[3];
                 if(!inserter(unescaped, unescaped+2)) {
-                    ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - currentPos);
+                    ctx.setError(DeserializationContext::UNEXPECTED_END_OF_DATA, end - currentPos);
                     return false;
                 }
 
@@ -355,7 +372,7 @@ bool extractJSString(InpIter & currentPos, const InpIter & end, DeserializationR
                 break;
                 /* Unexpected symbol */
             default:
-                ctx.setError(DeserializationResult::UNEXPECTED_SYMBOL, end - currentPos);
+                ctx.setError(DeserializationContext::UNEXPECTED_SYMBOL, end - currentPos);
                 return false;
             }
             rangeBegin = currentPos;
@@ -365,7 +382,7 @@ bool extractJSString(InpIter & currentPos, const InpIter & end, DeserializationR
         }
     }
     if(currentPos == end) [[unlikely]] {
-        ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - currentPos);
+        ctx.setError(DeserializationContext::UNEXPECTED_END_OF_DATA, end - currentPos);
         return false;
     }
 
@@ -380,16 +397,16 @@ bool extractJSString(InpIter & currentPos, const InpIter & end, DeserializationR
 static inline bool is_integer(char c) {
   return (c >= '0' && c <= '9');
 }
-bool skipDouble(InputIteratorConcept auto & begin, const InputIteratorConcept auto & end, DeserializationResult & ctx) {
+bool skipDouble(InputIteratorConcept auto & begin, const InputIteratorConcept auto & end, DeserializationContext & ctx) {
    if(*begin == '-') {
        begin ++;
        if (begin == end) [[unlikely]] {
-           ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
+           ctx.setError(DeserializationContext::UNEXPECTED_END_OF_DATA, end - begin);
            return false;
        }
    }
    if(!is_integer(*begin)) {
-       ctx.setError(DeserializationResult::UNEXPECTED_SYMBOL, end - begin);
+       ctx.setError(DeserializationContext::UNEXPECTED_SYMBOL, end - begin);
        return false;
    }
 
@@ -397,31 +414,31 @@ bool skipDouble(InputIteratorConcept auto & begin, const InputIteratorConcept au
        while(is_integer(*begin)) {
            begin ++;
            if (begin == end) [[unlikely]] {
-               ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
+               ctx.setError(DeserializationContext::UNEXPECTED_END_OF_DATA, end - begin);
                return false;
            }
        }
    } else {
        begin ++;
        if (begin == end) [[unlikely]] {
-           ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
+           ctx.setError(DeserializationContext::UNEXPECTED_END_OF_DATA, end - begin);
            return false;
        }
    }
    if(*begin == '.') {
        begin ++;
        if (begin == end) [[unlikely]] {
-           ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
+           ctx.setError(DeserializationContext::UNEXPECTED_END_OF_DATA, end - begin);
            return false;
        }
        if(!is_integer(*begin)) {
-           ctx.setError(DeserializationResult::UNEXPECTED_SYMBOL, end - begin);
+           ctx.setError(DeserializationContext::UNEXPECTED_SYMBOL, end - begin);
            return false;
        }
        while(is_integer(*begin)) {
            begin ++;
            if (begin == end) [[unlikely]] {
-               ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
+               ctx.setError(DeserializationContext::UNEXPECTED_END_OF_DATA, end - begin);
                return false;
            }
        }
@@ -429,20 +446,20 @@ bool skipDouble(InputIteratorConcept auto & begin, const InputIteratorConcept au
    if(*begin == 'e'||*begin == 'E') {
        begin ++;
        if (begin == end) [[unlikely]] {
-           ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
+           ctx.setError(DeserializationContext::UNEXPECTED_END_OF_DATA, end - begin);
            return false;
        }
        if(*begin == '+'||*begin == '-') {
            begin ++;
            if (begin == end) [[unlikely]] {
-               ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
+               ctx.setError(DeserializationContext::UNEXPECTED_END_OF_DATA, end - begin);
                return false;
            }
        }
        while(is_integer(*begin)) {
            begin ++;
            if (begin == end) [[unlikely]] {
-               ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
+               ctx.setError(DeserializationContext::UNEXPECTED_END_OF_DATA, end - begin);
                return false;
            }
        }
@@ -450,15 +467,15 @@ bool skipDouble(InputIteratorConcept auto & begin, const InputIteratorConcept au
    if(!skipWhiteSpace(begin, end, ctx))
        return false;
    if(!isPlainEnd(*begin))  [[unlikely]] {
-       ctx.setError(DeserializationResult::UNEXPECTED_SYMBOL, end - begin);
+       ctx.setError(DeserializationContext::UNEXPECTED_SYMBOL, end - begin);
        return false;
    }
    return true;
 }
-bool skipJsonValue(std::uint8_t &recursionLevelRemains, InputIteratorConcept auto & begin, const InputIteratorConcept auto & end, DeserializationResult & ctx);
+bool skipJsonValue(std::uint8_t &recursionLevelRemains, InputIteratorConcept auto & begin, const InputIteratorConcept auto & end, DeserializationContext & ctx);
 
 template<class InpIter> requires InputIteratorConcept<InpIter>
-bool skipPlainJsonValue(InpIter & begin, const InpIter & end, DeserializationResult & ctx) {
+bool skipPlainJsonValue(InpIter & begin, const InpIter & end, DeserializationContext & ctx) {
     switch(*begin) {
     case '"':
     {
@@ -506,11 +523,11 @@ bool skipPlainJsonValue(InpIter & begin, const InpIter & end, DeserializationRes
     default:
         return skipDouble(begin, end, ctx);
     }
-    ctx.setError(DeserializationResult::SKIPPING_ERROR, end - begin);
+    ctx.setError(DeserializationContext::SKIPPING_ERROR, end - begin);
     return false;
 }
 
-bool skipArrayJsonValue(std::uint8_t & recursionLevelRemains, InputIteratorConcept auto & begin, const InputIteratorConcept auto & end, DeserializationResult & ctx) {
+bool skipArrayJsonValue(std::uint8_t & recursionLevelRemains, InputIteratorConcept auto & begin, const InputIteratorConcept auto & end, DeserializationContext & ctx) {
     if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
         return false;
     }
@@ -540,12 +557,12 @@ bool skipArrayJsonValue(std::uint8_t & recursionLevelRemains, InputIteratorConce
             begin ++;
         }
     }
-    ctx.setError(DeserializationResult::INTERNAL_ERROR, end - begin);
+    ctx.setError(DeserializationContext::INTERNAL_ERROR, end - begin);
     return false;
 }
 
 template<class InpIter> requires InputIteratorConcept<InpIter>
-bool skipObjectJsonValue(std::uint8_t & recursionLevelRemains, InpIter & begin, const InpIter & end, DeserializationResult & ctx) {
+bool skipObjectJsonValue(std::uint8_t & recursionLevelRemains, InpIter & begin, const InpIter & end, DeserializationContext & ctx) {
     if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
         return false;
     }
@@ -572,7 +589,7 @@ bool skipObjectJsonValue(std::uint8_t & recursionLevelRemains, InpIter & begin, 
         begin = keyEnd;
         begin ++;
         if(begin == end) [[unlikely]] {
-            ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
+            ctx.setError(DeserializationContext::UNEXPECTED_END_OF_DATA, end - begin);
             return false;
         }
         if(!d::skipWhiteSpaceTill(begin, end, ':', ctx)) [[unlikely]] {
@@ -594,17 +611,17 @@ bool skipObjectJsonValue(std::uint8_t & recursionLevelRemains, InpIter & begin, 
             begin ++;
         }
     }
-    ctx.setError(DeserializationResult::SKIPPING_ERROR, end - begin);
+    ctx.setError(DeserializationContext::SKIPPING_ERROR, end - begin);
     return false;
 }
 
-bool skipJsonValue(std::uint8_t & recursionLevelRemains, InputIteratorConcept auto & begin, const InputIteratorConcept auto & end, DeserializationResult & ctx) {
+bool skipJsonValue(std::uint8_t & recursionLevelRemains, InputIteratorConcept auto & begin, const InputIteratorConcept auto & end, DeserializationContext & ctx) {
     if(!skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
         return false;
     }
     recursionLevelRemains --;
     if(recursionLevelRemains == 0) {
-        ctx.setError(DeserializationResult::SKIPPING_MAX_RECURSION, end-begin);
+        ctx.setError(DeserializationContext::SKIPPING_MAX_RECURSION, end-begin);
         return false;
     }
     bool r = false;

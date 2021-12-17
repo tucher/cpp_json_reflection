@@ -250,7 +250,7 @@ public:
     }
 
     template<class InpIter> requires InputIteratorConcept<InpIter>
-    bool DeserializeInternal(InpIter & begin, const InpIter & end, DeserializationResult & ctx) {
+    bool DeserializeInternal(InpIter & begin, const InpIter & end, DeserializationContext & ctx) {
         if constexpr(std::same_as<bool, Src>) {
             char fc = *begin;
             begin++;
@@ -271,12 +271,12 @@ public:
                     sz = sizeof (vf) - 1;
                 }
                 if(end-begin < sz)  [[unlikely]] {
-                    ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
+                    ctx.setError(DeserializationContext::UNEXPECTED_END_OF_DATA, end - begin);
                     return false;
                 }
                 for(int i = 0; i < sz; i ++) {
                     if(*begin != v[i]) [[unlikely]] {
-                        ctx.setError(DeserializationResult::UNEXPECTED_SYMBOL, end - begin);
+                        ctx.setError(DeserializationContext::UNEXPECTED_SYMBOL, end - begin);
                         return false;
                     }
                     begin ++;
@@ -284,7 +284,7 @@ public:
                 content = to_assign;
                 return true;
             } else {
-                ctx.setError(DeserializationResult::UNEXPECTED_SYMBOL, end - begin);
+                ctx.setError(DeserializationContext::UNEXPECTED_SYMBOL, end - begin);
                 return false;
             }
         } else if constexpr(d::StringTypeConcept<Src>) {
@@ -298,7 +298,7 @@ public:
                 return false;
             }
             if(!content.JSONDeserialise(container)) [[unlikely]]{
-                ctx.setError(DeserializationResult::CUSTOM_MAPPER_ERROR, end - begin);
+                ctx.setError(DeserializationContext::CUSTOM_MAPPER_ERROR, end - begin);
             } else {
                 return true;
             }
@@ -307,14 +307,14 @@ public:
              std::size_t index = 0;
              while(!d::isPlainEnd(*begin)) {
                  if(begin == end ) [[unlikely]] {
-                     ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
+                     ctx.setError(DeserializationContext::UNEXPECTED_END_OF_DATA, end - begin);
                      return false;
                  }
                  buf[index] = *begin;
                  begin ++;
                  index ++;
                  if(index > sizeof (buf) - 1) [[unlikely]] {
-                     ctx.setError(DeserializationResult::ILLFORMED_NUMBER, end - begin);
+                     ctx.setError(DeserializationContext::ILLFORMED_NUMBER, end - begin);
                      return false;
                  }
              }
@@ -324,10 +324,10 @@ public:
                  content = x;
                  return true;
              }
-             ctx.setError(DeserializationResult::ILLFORMED_NUMBER, end - begin);
+             ctx.setError(DeserializationContext::ILLFORMED_NUMBER, end - begin);
              return false;
         }
-        ctx.setError(DeserializationResult::INTERNAL_ERROR, end - begin);
+        ctx.setError(DeserializationContext::INTERNAL_ERROR, end - begin);
         return false;
     }
 };
@@ -371,7 +371,7 @@ public:
     }
 
     template<class InpIter> requires InputIteratorConcept<InpIter>
-    bool DeserializeInternal(InpIter & begin, const InpIter & end, DeserializationResult & ctx) {
+    bool DeserializeInternal(InpIter & begin, const InpIter & end, DeserializationContext & ctx) {
         if(!d::skipWhiteSpaceTill(begin, end, '[', ctx)) [[unlikely]] {
             return false;
         }
@@ -411,14 +411,14 @@ public:
                 }
                 if(*begin == ']') {
                     if(containerI != static_cast<const Src&>(*this).end()) {
-                        ctx.setError(DeserializationResult::FIXED_SIZE_CONTAINER_UNDERFLOW, end - begin);
+                        ctx.setError(DeserializationContext::FIXED_SIZE_CONTAINER_UNDERFLOW, end - begin);
                         return false;
                     }
                     begin ++;
                     return true;
                 }
                 if(containerI == static_cast<const Src&>(*this).end()) {
-                    ctx.setError(DeserializationResult::FIXED_SIZE_CONTAINER_OVERFLOW, end - begin);
+                    ctx.setError(DeserializationContext::FIXED_SIZE_CONTAINER_OVERFLOW, end - begin);
                     return false;
                 }
                 if(end-begin>=4 && *(begin+0) == 'n'&&*(begin+1) == 'u'&&*(begin+2) == 'l'&&*(begin+3) == 'l') {
@@ -439,7 +439,7 @@ public:
                 containerI ++;
             }
         }
-        ctx.setError(DeserializationResult::INTERNAL_ERROR, end - begin);
+        ctx.setError(DeserializationContext::INTERNAL_ERROR, end - begin);
         return false;
     }
 };
@@ -495,7 +495,7 @@ public:
     }
 
     template<class InpIter> requires InputIteratorConcept<InpIter>
-    bool DeserializeInternal(InpIter & begin, const InpIter & end, DeserializationResult & ctx) {
+    bool DeserializeInternal(InpIter & begin, const InpIter & end, DeserializationContext & ctx) {
         if(!d::skipWhiteSpaceTill(begin, end, '{', ctx)) [[unlikely]] {
             return false;
         }
@@ -538,7 +538,7 @@ public:
                 begin ++;
             }
         }
-        ctx.setError(DeserializationResult::INTERNAL_ERROR, end - begin);
+        ctx.setError(DeserializationContext::INTERNAL_ERROR, end - begin);
         return false;
     }
 };
@@ -588,6 +588,8 @@ struct KeyIndexBuilder<std::tuple<FieldTypes...>, std::index_sequence<Is...>>  {
             }
         }
         std::ranges::sort(ret, std::ranges::less{}, ProjKeyIndexVariantToStringView{});
+
+//        static_assert (std::unique(ret.begin(), ret.end()) == ret.end(), "Keys must be unique" );
         return ret;
     }
     static constexpr KeyIndexEntryArrayType sortedKeyIndexArray = sortKeyIndexes({KeyIndexEntry<Is, FieldTypes>()...});
@@ -635,23 +637,33 @@ class J<Src, Str> : public Src {
     using KeyIndexBuilderT = d::KeyIndexBuilder<decltype (pfr::structure_to_tuple(std::declval<Src>())), std::make_index_sequence<pfr::tuple_size_v<Src>>>;
     static constexpr auto sortedKeyIndexArray = KeyIndexBuilderT::sortedKeyIndexArray;
 
+    using FilledFlagsArray = std::array<bool, sortedKeyIndexArray.size()>;
     template<class InpIter> requires InputIteratorConcept<InpIter>
-    bool DeserialiseField(const InpIter & keyBegin, const InpIter & keyEnd, InpIter &begin, const InpIter & end, DeserializationResult & ctx, bool resetField) {
+    bool DeserialiseField(const InpIter & keyBegin, const InpIter & keyEnd, InpIter &begin, const InpIter & end, DeserializationContext & ctx, bool fieldisNull, FilledFlagsArray & filledFlagsArray) {
         std::string_view keySV{keyBegin, keyEnd};
 
         auto foundVarIt = d::binary_search(sortedKeyIndexArray.begin(), sortedKeyIndexArray.end(), keySV, std::ranges::less{}, typename KeyIndexBuilderT::ProjKeyIndexVariantToStringView{});
 
-        if(!resetField && foundVarIt == sortedKeyIndexArray.end()) {
-            std::uint8_t level = d::SkippingMaxNestingLevel;
-            return d::skipJsonValue(level, begin, end, ctx);
+        if(foundVarIt == sortedKeyIndexArray.end()) {
+            if(ctx.flag(ParseFlags::EXCESS_FIELDS_PROHIBITED)) {
+                ctx.setError(DeserializationContext::EXCESS_FIELD, end - begin);
+                return false;
+            }
+            if(!fieldisNull) {
+                std::uint8_t level = d::SkippingMaxNestingLevel;
+                return d::skipJsonValue(level, begin, end, ctx);
+            } else {
+                return true;
+            }
         }
 
+
         bool deserRes = swl::visit(
-                [this, &begin, &end, &ctx, resetField]<class KeyIndexType>(KeyIndexType keyIndex) -> bool{
+                [this, &begin, &end, &ctx, fieldisNull]<class KeyIndexType>(KeyIndexType keyIndex) -> bool{
                     if constexpr(KeyIndexType::skip == false) {
                         using FieldType = pfr::tuple_element_t<KeyIndexType::OriginalIndex, Src>;
                         FieldType & f = pfr::get<KeyIndexType::OriginalIndex>(static_cast<Src &>(*this));
-                        if(resetField) {
+                        if(fieldisNull) {
                             f = FieldType{};
                             return true;
                         }  else {
@@ -661,6 +673,9 @@ class J<Src, Str> : public Src {
                         return false;
                 }
         , *foundVarIt);
+        if(deserRes) {
+            filledFlagsArray[foundVarIt-sortedKeyIndexArray.begin()] = true;
+        }
 
         return deserRes;
     }
@@ -735,31 +750,53 @@ public:
     }
 
     template<class InpIter> requires InputIteratorConcept<InpIter>
-    DeserializationResult Deserialize(InpIter begin, const InpIter & end) {
-        DeserializationResult ctx(end-begin);
+    DeserializationContext Deserialize(InpIter begin, const InpIter & end, ParseFlags flags = ParseFlags::DEFAULT) {
+        DeserializationContext ctx(end-begin, flags);
         bool ret = DeserializeInternal(begin, end, ctx);
         return ctx;
     }
 
     template<class ContainterT> requires std::ranges::range<ContainterT>
-    DeserializationResult Deserialize(const ContainterT & c) {
-        DeserializationResult ctx(c.size());
+    DeserializationContext Deserialize(const ContainterT & c, ParseFlags flags = ParseFlags::DEFAULT) {
+        DeserializationContext ctx(c.size(), flags);
         auto b = c.begin();
         bool ret =  DeserializeInternal(b, c.end(), ctx);
         return ctx;
     }
 
     template<class InpIter> requires InputIteratorConcept<InpIter>
-    bool DeserializeInternal(InpIter & begin, const InpIter & end, DeserializationResult & ctx) {
+    bool DeserializeInternal(InpIter & begin, const InpIter & end, DeserializationContext & ctx) {
         if(!d::skipWhiteSpaceTill(begin, end, '{', ctx)) [[unlikely]] {
             return false;
         }
+
+        FilledFlagsArray filledFlags;
+        filledFlags.fill(false);
         while(begin != end) {
             if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
                 return false;
             }
             if(*begin == '}') {
                 begin ++;
+
+                for(int i = 0; i < filledFlags.size(); i ++) {
+                    if(!filledFlags[i]) {
+                        if(ctx.flag(ParseFlags::ALL_FIELDS_REQUIRED)) {
+                            ctx.setError(DeserializationContext::MISSING_FIELD, end - begin);
+                            return false;
+                        } else {
+                            swl::visit([this]<class KeyIndexType>(KeyIndexType keyIndex){
+                                   if constexpr(KeyIndexType::skip == false) {
+                                       using FieldType = pfr::tuple_element_t<KeyIndexType::OriginalIndex, Src>;
+                                       FieldType & f = pfr::get<KeyIndexType::OriginalIndex>(static_cast<Src &>(*this));
+                                       f = FieldType{};
+
+                                   }
+                               }
+                            , *(sortedKeyIndexArray.begin() + i));
+                        }
+                    }
+                }
                 return true;
             }
 
@@ -775,7 +812,7 @@ public:
             begin = keyEnd;
             begin ++;
             if(begin == end) [[unlikely]] {
-                ctx.setError(DeserializationResult::UNEXPECTED_END_OF_DATA, end - begin);
+                ctx.setError(DeserializationContext::UNEXPECTED_END_OF_DATA, end - begin);
                 return false;
             }
             if(!d::skipWhiteSpaceTill(begin, end, ':', ctx)) [[unlikely]] {
@@ -784,12 +821,12 @@ public:
             if(!d::skipWhiteSpace(begin, end, ctx)) [[unlikely]] {
                 return false;
             }
-            bool resetField = false;
+            bool fieldisNull = false;
             if(end-begin>=4 && *(begin+0) == 'n'&&*(begin+1) == 'u'&&*(begin+2) == 'l'&&*(begin+3) == 'l') {
                 begin += 4;
-                resetField = true;
+                fieldisNull = true;
             }
-            if(!DeserialiseField(keyBegin, keyEnd, begin, end, ctx, resetField)) {
+            if(!DeserialiseField(keyBegin, keyEnd, begin, end, ctx, fieldisNull, filledFlags)) {
                 return false;
             }
 
@@ -800,7 +837,7 @@ public:
                 begin ++;
             }
         }
-        ctx.setError(DeserializationResult::INTERNAL_ERROR, end - begin);
+        ctx.setError(DeserializationContext::INTERNAL_ERROR, end - begin);
         return false;
     }
 };
