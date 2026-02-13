@@ -29,6 +29,7 @@ struct as_array_tag {};
 struct indexes_as_keys_tag {};
 struct skip_tag {};
 struct skip_nulls_tag{};
+struct flatten_tag {};
 }
 
 struct exclude {
@@ -97,6 +98,13 @@ struct skip_nulls {
     using tag = detail::skip_nulls_tag;
     static constexpr std::string_view to_string() {
         return "indexes_as_keys";
+    }
+};
+
+struct flatten {
+    using tag = detail::flatten_tag;
+    static constexpr std::string_view to_string() {
+        return "flatten";
     }
 };
 

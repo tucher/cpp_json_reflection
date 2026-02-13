@@ -84,6 +84,7 @@ Each guide solves one specific problem with minimal, copy-paste-ready code.
 | Guide | Summary |
 |-------|---------|
 | [Create reusable templated submodels](composable-reusable-types.md) | DRY principles in JsonFusion, approaches for improving maintainability, composing complex models |
+| [Struct composition with flatten and inheritance](struct-composition.md) | Flatten composed fields into parent JSON level, inheritance flattening, mixin pattern — C++26 only |
 
 ## Streaming (Typed SAX)
 

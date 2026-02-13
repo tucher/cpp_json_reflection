@@ -132,5 +132,61 @@ indexes_as_keys             // Use field indices as JSON keys: {"0": val0, "1": 
 skip_nulls                  // Skip null values during serialization (for null nullable fields, works in map-like structures to allow sparse index space)
 ```
 
+#### Composition Options
+
+```cpp
+flatten                     // Promote a composed field's members to the parent JSON level (C++26 only)
+```
+
+Annotate a struct-typed field with `flatten` to "unwrap" it — its members appear at the parent level in JSON instead of as a nested object. Works with both annotation and wrapper syntax:
+
+```cpp
+struct Address {
+    std::string city;
+    std::string zip;
+};
+
+// C++26 annotation syntax
+struct Person {
+    std::string name;
+    [[=A<flatten>{}]] Address address;
+};
+
+// Wrapper syntax
+struct Person {
+    std::string name;
+    A<Address, flatten> address;
+};
+```
+
+Both produce/consume flat JSON:
+```json
+{"name": "Alice", "city": "NYC", "zip": "10001"}
+```
+
+**Features:**
+- Multiple `flatten` fields in the same struct are supported
+- Inner fields retain their own validators (e.g. `range<>` on an inner field still works)
+- The flattened type's own base classes are included (inheritance + flatten compose naturally)
+- `flatten` can coexist with inheritance flattening in the same struct
+
+**Inheritance flattening** is automatic and requires no annotation — base class fields always appear at the derived class's JSON level:
+
+```cpp
+struct Base {
+    int id;
+    std::string name;
+};
+
+struct Derived : Base {
+    std::string email;
+};
+// JSON: {"id": 1, "name": "Alice", "email": "alice@example.com"}
+```
+
+Multiple inheritance works the same way (mixin pattern). If a derived class declares a field with the same name as a base class field, the derived field wins.
+
+**NOTE:** Both `flatten` and inheritance flattening are C++26-only features (require `-std=c++26 -freflection`). They rely on `std::meta::bases_of` and annotation reflection which are not available in the Boost.PFR fallback path.
+
 
 
