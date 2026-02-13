@@ -134,8 +134,9 @@ struct IntrospectionImpl {
             // Check if this is an OptionsPack instantiation
             if (std::meta::has_template_arguments(annot_type)) {
                 auto tmpl = std::meta::template_of(annot_type);
-                if (tmpl == ^^OptionsPack) {
-                    return annot_type;  // Return the OptionsPack<...> type
+                if (tmpl == ^^Annotated) {
+                    auto args = std::meta::template_arguments_of(annot_type);
+                    return std::meta::substitute(^^OptionsPack, args);
                 }
             }
         }

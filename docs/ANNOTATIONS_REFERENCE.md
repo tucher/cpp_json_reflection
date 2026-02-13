@@ -14,7 +14,7 @@ A<T, Validator1, Validator2, Option1, ...> field; // shorthand alias
 With C++26 reflection (`-std=c++26 -freflection` in GCC 16+), you can use native attributes instead of wrapper types:
 
 ```cpp
-[[=OptionsPack<Validator1, Validator2, Option1, ...>{}]] T field;
+[[=A<Validator1, Validator2, Option1, ...>{}]] T field;
 ```
 **Example comparison:**
 ```cpp
@@ -26,12 +26,12 @@ struct Config {
 
 // C++26 (native annotation syntax)
 struct Config {
-    [[=OptionsPack<range<0, 65535>>{}]] int port;
-    [[=OptionsPack<range<1, 100>>{}]] int max_connections;
+    [[=A<range<0, 65535>>{}]] int port;
+    [[=A<range<1, 100>>{}]] int max_connections;
 };
 ```
 
-**Note:** Both syntaxes can be mixed in the same struct. The `OptionsPack<...>` wrapper is required to distinguish JsonFusion annotations from other libraries' attributes.
+**Note:** Both syntaxes can be mixed in the same struct. The `A<...>` wrapper is required to distinguish JsonFusion annotations from other libraries' attributes.
 
 ### Validators (Type-Specific Constraints)
 

@@ -5,7 +5,7 @@
 //               -I/Users/tucher/JsonFusion/include \
 //               tests/constexpr/annotations/test_cpp26_annotations_basic.cpp
 //
-// This test verifies that C++26 annotations (via [[=OptionsPack<...>{}]])
+// This test verifies that C++26 annotations (via [[=A<...>{}]])
 // are correctly extracted and used for validation during JSON parsing.
 //
 // NOTE: This test is skipped (compiles to empty) when C++26 reflection is not available.
@@ -30,12 +30,12 @@ using namespace JsonFusion::validators;
 // ============================================================================
 
 // Instead of: Annotated<int, range<0, 100>> value;
-// We use:     [[=OptionsPack<range<0, 100>>{}]] int value;
+// We use:     [[=A<range<0, 100>>{}]] int value;
 
 // Test: range<0, 100> accepts value at min boundary
 constexpr bool test_annotation_range_min_boundary_valid() {
     struct Test {
-        [[=OptionsPack<range<0, 100>>{}]] int value;
+        [[=A<range<0, 100>>{}]] int value;
     };
     
     Test obj{};
@@ -45,12 +45,12 @@ constexpr bool test_annotation_range_min_boundary_valid() {
     return result && obj.value == 0;
 }
 static_assert(test_annotation_range_min_boundary_valid(), 
-    "[[=OptionsPack<range<0, 100>>{}]] accepts min boundary (0)");
+    "[[=A<range<0, 100>>{}]] accepts min boundary (0)");
 
 // Test: range<0, 100> accepts value at max boundary
 constexpr bool test_annotation_range_max_boundary_valid() {
     struct Test {
-        [[=OptionsPack<range<0, 100>>{}]] int value;
+        [[=A<range<0, 100>>{}]] int value;
     };
     
     Test obj{};
@@ -60,12 +60,12 @@ constexpr bool test_annotation_range_max_boundary_valid() {
     return result && obj.value == 100;
 }
 static_assert(test_annotation_range_max_boundary_valid(), 
-    "[[=OptionsPack<range<0, 100>>{}]] accepts max boundary (100)");
+    "[[=A<range<0, 100>>{}]] accepts max boundary (100)");
 
 // Test: range<0, 100> accepts value in middle
 constexpr bool test_annotation_range_middle_valid() {
     struct Test {
-        [[=OptionsPack<range<0, 100>>{}]] int value;
+        [[=A<range<0, 100>>{}]] int value;
     };
     
     Test obj{};
@@ -75,7 +75,7 @@ constexpr bool test_annotation_range_middle_valid() {
     return result && obj.value == 50;
 }
 static_assert(test_annotation_range_middle_valid(), 
-    "[[=OptionsPack<range<0, 100>>{}]] accepts middle value (50)");
+    "[[=A<range<0, 100>>{}]] accepts middle value (50)");
 
 // ============================================================================
 // Test: range<> - Invalid Values (Below Min, Above Max)
@@ -84,7 +84,7 @@ static_assert(test_annotation_range_middle_valid(),
 // Test: range<0, 100> rejects value below min
 constexpr bool test_annotation_range_below_min() {
     struct Test {
-        [[=OptionsPack<range<0, 100>>{}]] int value;
+        [[=A<range<0, 100>>{}]] int value;
     };
     
     Test obj{};
@@ -94,12 +94,12 @@ constexpr bool test_annotation_range_below_min() {
     return !result && result.validationErrors().error() == SchemaError::number_out_of_range;
 }
 static_assert(test_annotation_range_below_min(), 
-    "[[=OptionsPack<range<0, 100>>{}]] rejects value below min (-1)");
+    "[[=A<range<0, 100>>{}]] rejects value below min (-1)");
 
 // Test: range<0, 100> rejects value above max
 constexpr bool test_annotation_range_above_max() {
     struct Test {
-        [[=OptionsPack<range<0, 100>>{}]] int value;
+        [[=A<range<0, 100>>{}]] int value;
     };
     
     Test obj{};
@@ -109,7 +109,7 @@ constexpr bool test_annotation_range_above_max() {
     return !result && result.validationErrors().error() == SchemaError::number_out_of_range;
 }
 static_assert(test_annotation_range_above_max(), 
-    "[[=OptionsPack<range<0, 100>>{}]] rejects value above max (101)");
+    "[[=A<range<0, 100>>{}]] rejects value above max (101)");
 
 // ============================================================================
 // Test: Multiple annotated fields
@@ -117,8 +117,8 @@ static_assert(test_annotation_range_above_max(),
 
 constexpr bool test_annotation_multiple_fields() {
     struct Config {
-        [[=OptionsPack<range<0, 65535>>{}]] int port;
-        [[=OptionsPack<range<1, 100>>{}]] int max_connections;
+        [[=A<range<0, 65535>>{}]] int port;
+        [[=A<range<1, 100>>{}]] int max_connections;
         int plain_field;  // No annotation - no validation
     };
     
@@ -136,8 +136,8 @@ static_assert(test_annotation_multiple_fields(),
 
 constexpr bool test_annotation_multiple_fields_one_fails() {
     struct Config {
-        [[=OptionsPack<range<0, 65535>>{}]] int port;
-        [[=OptionsPack<range<1, 100>>{}]] int max_connections;
+        [[=A<range<0, 65535>>{}]] int port;
+        [[=A<range<1, 100>>{}]] int max_connections;
     };
     
     Config obj{};
@@ -155,7 +155,7 @@ static_assert(test_annotation_multiple_fields_one_fails(),
 
 constexpr bool test_annotation_negative_range() {
     struct Test {
-        [[=OptionsPack<range<-100, -10>>{}]] int value;
+        [[=A<range<-100, -10>>{}]] int value;
     };
     
     Test obj{};
@@ -165,11 +165,11 @@ constexpr bool test_annotation_negative_range() {
     return result && obj.value == -50;
 }
 static_assert(test_annotation_negative_range(), 
-    "[[=OptionsPack<range<-100, -10>>{}]] accepts value in negative range");
+    "[[=A<range<-100, -10>>{}]] accepts value in negative range");
 
 constexpr bool test_annotation_negative_range_rejects_positive() {
     struct Test {
-        [[=OptionsPack<range<-100, -10>>{}]] int value;
+        [[=A<range<-100, -10>>{}]] int value;
     };
     
     Test obj{};
@@ -179,7 +179,7 @@ constexpr bool test_annotation_negative_range_rejects_positive() {
     return !result && result.validationErrors().error() == SchemaError::number_out_of_range;
 }
 static_assert(test_annotation_negative_range_rejects_positive(), 
-    "[[=OptionsPack<range<-100, -10>>{}]] rejects positive value");
+    "[[=A<range<-100, -10>>{}]] rejects positive value");
 
 // ============================================================================
 // Test: Single-value range
@@ -187,7 +187,7 @@ static_assert(test_annotation_negative_range_rejects_positive(),
 
 constexpr bool test_annotation_single_value_range() {
     struct Test {
-        [[=OptionsPack<range<42, 42>>{}]] int value;
+        [[=A<range<42, 42>>{}]] int value;
     };
     
     Test obj{};
@@ -197,11 +197,11 @@ constexpr bool test_annotation_single_value_range() {
     return result && obj.value == 42;
 }
 static_assert(test_annotation_single_value_range(), 
-    "[[=OptionsPack<range<42, 42>>{}]] accepts exactly 42");
+    "[[=A<range<42, 42>>{}]] accepts exactly 42");
 
 constexpr bool test_annotation_single_value_range_rejects() {
     struct Test {
-        [[=OptionsPack<range<42, 42>>{}]] int value;
+        [[=A<range<42, 42>>{}]] int value;
     };
     
     Test obj{};
@@ -211,7 +211,7 @@ constexpr bool test_annotation_single_value_range_rejects() {
     return !result && result.validationErrors().error() == SchemaError::number_out_of_range;
 }
 static_assert(test_annotation_single_value_range_rejects(), 
-    "[[=OptionsPack<range<42, 42>>{}]] rejects 43");
+    "[[=A<range<42, 42>>{}]] rejects 43");
 
 // ============================================================================
 // Test: Field without annotation (no validation)
@@ -237,9 +237,9 @@ static_assert(test_annotation_plain_field(),
 
 constexpr bool test_annotation_mixed_fields() {
     struct Test {
-        [[=OptionsPack<range<0, 100>>{}]] int validated;
+        [[=A<range<0, 100>>{}]] int validated;
         int unvalidated;
-        [[=OptionsPack<range<-10, 10>>{}]] int also_validated;
+        [[=A<range<-10, 10>>{}]] int also_validated;
     };
     
     Test obj{};
@@ -258,10 +258,10 @@ static_assert(test_annotation_mixed_fields(),
 // Test: Both C++26 annotations and A<>/Annotated<> work simultaneously
 // ============================================================================
 
-// Test: Mix of [[=OptionsPack<...>{}]] and Annotated<> in same struct
+// Test: Mix of [[=A<...>{}]] and Annotated<> in same struct
 constexpr bool test_both_syntaxes_valid() {
     struct Config {
-        [[=OptionsPack<range<0, 100>>{}]] int new_style;      // C++26 annotation
+        [[=A<range<0, 100>>{}]] int new_style;      // C++26 annotation
         Annotated<int, range<0, 100>> old_style;              // Traditional wrapper
         A<int, range<0, 100>> shorthand_style;                // A<> shorthand
         int plain;                                             // No validation
@@ -278,12 +278,12 @@ constexpr bool test_both_syntaxes_valid() {
         && obj.plain == 999;
 }
 static_assert(test_both_syntaxes_valid(), 
-    "Both [[=OptionsPack<...>{}]] and Annotated<>/A<> work in same struct");
+    "Both [[=A<...>{}]] and Annotated<>/A<> work in same struct");
 
 // Test: C++26 annotation fails validation (others valid)
 constexpr bool test_both_syntaxes_new_style_fails() {
     struct Config {
-        [[=OptionsPack<range<0, 100>>{}]] int new_style;
+        [[=A<range<0, 100>>{}]] int new_style;
         Annotated<int, range<0, 100>> old_style;
     };
     
@@ -299,7 +299,7 @@ static_assert(test_both_syntaxes_new_style_fails(),
 // Test: Annotated<> fails validation (others valid)
 constexpr bool test_both_syntaxes_old_style_fails() {
     struct Config {
-        [[=OptionsPack<range<0, 100>>{}]] int new_style;
+        [[=A<range<0, 100>>{}]] int new_style;
         Annotated<int, range<0, 100>> old_style;
     };
     
@@ -315,7 +315,7 @@ static_assert(test_both_syntaxes_old_style_fails(),
 // Test: A<> shorthand fails validation
 constexpr bool test_both_syntaxes_shorthand_fails() {
     struct Config {
-        [[=OptionsPack<range<0, 100>>{}]] int new_style;
+        [[=A<range<0, 100>>{}]] int new_style;
         A<int, range<0, 100>> shorthand;
     };
     
@@ -331,10 +331,10 @@ static_assert(test_both_syntaxes_shorthand_fails(),
 // Test: Complex mixed struct with different validators
 constexpr bool test_both_syntaxes_different_validators() {
     struct ServerConfig {
-        [[=OptionsPack<range<1, 65535>>{}]] int port;              // C++26: port range
+        [[=A<range<1, 65535>>{}]] int port;              // C++26: port range
         Annotated<int, range<1, 1000>> max_connections;            // Annotated<>
         A<int, range<1, 3600>> timeout_seconds;                    // A<> shorthand
-        [[=OptionsPack<range<0, 100>>{}]] int cpu_threshold;       // C++26: percentage
+        [[=A<range<0, 100>>{}]] int cpu_threshold;       // C++26: percentage
         int debug_level;                                            // No validation
     };
     
@@ -366,7 +366,7 @@ static_assert(test_both_syntaxes_different_validators(),
 
 // Non-POD: Has user-defined constructor (PFR can't handle this!)
 struct NonPodWithConstructor {
-    [[=OptionsPack<range<0, 100>>{}]] int value;
+    [[=A<range<0, 100>>{}]] int value;
     std::string name;
     
     constexpr NonPodWithConstructor() : value(0), name() {}
@@ -384,7 +384,7 @@ static_assert(test_non_pod_with_constructor(),
 
 // Non-POD: Validation on type with constructor
 struct NonPodForValidation {
-    [[=OptionsPack<range<0, 100>>{}]] int value;
+    [[=A<range<0, 100>>{}]] int value;
     
     constexpr NonPodForValidation() : value(0) {}
 };
@@ -401,7 +401,7 @@ static_assert(test_non_pod_with_constructor_validation(),
 
 // Non-POD: Has default member initializers
 struct NonPodWithDefaults {
-    [[=OptionsPack<range<1, 65535>>{}]] int port = 8080;
+    [[=A<range<1, 65535>>{}]] int port = 8080;
     int timeout = 30;
     
     constexpr NonPodWithDefaults() = default;
@@ -430,7 +430,7 @@ static_assert(test_non_pod_partial_json(),
 
 // Non-POD: Has methods (reflection only sees data members)
 struct NonPodWithMethods {
-    [[=OptionsPack<range<0, 100>>{}]] int percentage;
+    [[=A<range<0, 100>>{}]] int percentage;
     
     constexpr NonPodWithMethods() : percentage(0) {}
     
@@ -455,7 +455,7 @@ static_assert(test_non_pod_with_methods(),
 
 // Simple 1D C array
 struct WithCArray1D {
-    [[=OptionsPack<range<0, 100>>{}]] int values[3];
+    [[=A<range<0, 100>>{}]] int values[3];
 };
 
 constexpr bool test_c_array_1d() {
@@ -488,7 +488,7 @@ static_assert(test_c_array_2d(),
 // Mixed: C array + other fields
 struct WithMixedCArray {
     int id;
-    [[=OptionsPack<range<0, 255>>{}]] int rgb[3];
+    [[=A<range<0, 255>>{}]] int rgb[3];
     std::string name;
 };
 
@@ -508,7 +508,7 @@ static_assert(test_c_array_mixed(),
 
 // C array size validation (min_items/max_items)
 struct WithCArraySizeValidation {
-    [[=OptionsPack<min_items<2>, max_items<4>>{}]] int values[4];
+    [[=A<min_items<2>, max_items<4>>{}]] int values[4];
 };
 
 constexpr bool test_c_array_size_validation() {

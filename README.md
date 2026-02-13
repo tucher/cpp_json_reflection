@@ -558,7 +558,7 @@ With the default `JSONFUSION_FP_BACKEND=0`, there are no explicit runtime depend
 Less work means both faster execution *and* smaller binaries.
 It is all about avoiding doing the same work multiple times.
 
-JsonFusion leverages **compile-time reflection** through Boost.PFR (or C++26 native reflection when available), enabling the compiler to know everything about your types before runtime. C++26 reflection support is already implemented and tested with GCC 16 (`-std=c++26 -freflection`), providing zero-dependency introspection and native `[[=OptionsPack<...>{}]]` annotation syntax as an alternative to `Annotated<T, ...>` wrappers.
+JsonFusion leverages **compile-time reflection** through Boost.PFR (or C++26 native reflection when available), enabling the compiler to know everything about your types before runtime. C++26 reflection support is already implemented and tested with GCC 16 (`-std=c++26 -freflection`), providing zero-dependency introspection and native `[[=A<...>{}]]` annotation syntax as an alternative to `Annotated<T, ...>` wrappers.
 
 ### Binary Size (Embedded Focus)
 
@@ -585,11 +585,11 @@ JsonFusion is benchmarked on multiple embedded platforms: **ARM Cortex-M7/M0+** 
 
 | Library                               |     M7    |    M0+    |  Version   |
 |---------------------------------------|-----------|-----------|------------|
-| **JsonFusion CBOR**                   |  17.0 KB |  24.2 KB | 97ccc983   |
+| **JsonFusion CBOR**                   |  17.0 KB |  24.2 KB | 53e274b3   |
 | ArduinoJson                           |  20.0 KB |  29.2 KB | v7.4.2     |
-| **JsonFusion**                        |  21.5 KB |  31.4 KB | 97ccc983   |
-| cJSON                                 |  25.3 KB |  35.2 KB | c859b25d   |
-| Glaze(with embedded-friendly config)  |  28.4 KB |  37.1 KB | b7e4e04f   |
+| **JsonFusion**                        |  21.5 KB |  31.4 KB | 53e274b3   |
+| cJSON                                 |  25.3 KB |  35.2 KB | a29814f2   |
+| Glaze(with embedded-friendly config)  |  28.4 KB |  37.1 KB | a67f6f03   |
 
 **Key Takeaways:**
 
@@ -613,11 +613,11 @@ JsonFusion is benchmarked on multiple embedded platforms: **ARM Cortex-M7/M0+** 
 
 | Library                               |   ESP32   |  Version   |
 |---------------------------------------|-----------|------------|
-| **JsonFusion CBOR**                   |  20.3 KB | 97ccc983   |
+| **JsonFusion CBOR**                   |  20.3 KB | 53e274b3   |
 | ArduinoJson                           |  25.1 KB | v7.4.2     |
-| **JsonFusion**                        |  25.7 KB | 97ccc983   |
-| Glaze(with embedded-friendly config)  |  33.9 KB | b7e4e04f   |
-| cJSON                                 |  65.1 KB | c859b25d   |
+| **JsonFusion**                        |  25.7 KB | 53e274b3   |
+| Glaze(with embedded-friendly config)  |  33.9 KB | a67f6f03   |
+| cJSON                                 |  65.1 KB | a29814f2   |
 
 **Key Takeaways:**
 
