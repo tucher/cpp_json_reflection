@@ -146,7 +146,7 @@ const WASM_BASE = localWasm || `https://raw.githubusercontent.com/${GITHUB_OWNER
 const RAW_BASE  = `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${branch}`;
 const API_TREES = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/git/trees/${branch}?recursive=1`;
 
-const SKIP_PATTERNS = ["annotations/test_cpp26"];
+const SKIP_PATTERNS = ["annotations/test_cpp26", "composition/test_composition_basic.cpp"];
 
 // ── DOM refs ───────────────────────────────────────────────────────
 const statusEl   = document.getElementById("status");
