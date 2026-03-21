@@ -5,11 +5,13 @@ async function loadCodeMirror() {
   if (cmLoaded) return cmLoaded;
   cmLoaded = (async () => {
     const [
-      { EditorView, EditorState, basicSetup },
+      { EditorView, basicSetup },
+      { EditorState },
       { cpp },
       { oneDark },
     ] = await Promise.all([
       import("codemirror"),
+      import("@codemirror/state"),
       import("@codemirror/lang-cpp"),
       import("@codemirror/theme-one-dark"),
     ]);
