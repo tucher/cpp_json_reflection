@@ -1,21 +1,19 @@
 // ── Lazy-loaded CodeMirror modules ─────────────────────────────────
-let cmLoaded = null; // Promise<{ EditorView, EditorState, cpp, oneDark, ... }>
+let cmLoaded = null;
 
 async function loadCodeMirror() {
   if (cmLoaded) return cmLoaded;
   cmLoaded = (async () => {
     const [
       { EditorView, basicSetup },
-      { EditorState },
       { cpp },
       { oneDark },
     ] = await Promise.all([
       import("codemirror"),
-      import("@codemirror/state"),
       import("@codemirror/lang-cpp"),
       import("@codemirror/theme-one-dark"),
     ]);
-    return { EditorView, EditorState, basicSetup, cpp, oneDark };
+    return { EditorView, basicSetup, cpp, oneDark };
   })();
   return cmLoaded;
 }
@@ -62,8 +60,10 @@ export async function initLiveEditors(container) {
     // Create editor container
     const editorWrap = document.createElement("div");
 
-    // Create CodeMirror editor
-    const state = cm.EditorState.create({
+    // Create CodeMirror editor — pass doc+extensions directly to EditorView
+    // so we never import @codemirror/state ourselves; esm.sh deduplicates
+    // the single internal copy shared by all CodeMirror packages.
+    const view = new cm.EditorView({
       doc: code,
       extensions: [
         cm.basicSetup,
@@ -71,9 +71,8 @@ export async function initLiveEditors(container) {
         cm.oneDark,
         cm.EditorView.lineWrapping,
       ],
+      parent: editorWrap,
     });
-
-    const view = new cm.EditorView({ state, parent: editorWrap });
 
     // Create toolbar
     const toolbar = document.createElement("div");
