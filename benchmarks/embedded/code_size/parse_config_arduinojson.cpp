@@ -11,6 +11,12 @@ using embedded_benchmark::RpcCommand;
 // Global config instance
 EmbeddedConfig g_config;
 
+#ifdef JF_PERF_ROUNDTRIP
+// Instruction-benchmark mode: serialize into a dedicated scratch buffer so the
+// parse input can be exactly the JSON. The code-size benchmark is unaffected.
+static char jf_perf_scratch[16384];
+#endif
+
 // Helper: Copy JSON string to fixed-size array
 template<size_t N>
 static bool copy_string(JsonVariant src, std::array<char, N>& dst) {
@@ -163,14 +169,23 @@ static size_t serialize_config(const EmbeddedConfig& config, char* buffer, size_
     ctrl_obj["name"] = config.controller.name.data();
     ctrl_obj["loop_hz"] = config.controller.loop_hz;
 
+    // Round-trip benchmark serializes the full fixed array (see cJSON note).
+#ifdef JF_PERF_ROUNDTRIP
+    const size_t n_motors = EmbeddedConfig::kMaxMotors;
+    const size_t n_sensors = EmbeddedConfig::kMaxSensors;
+#else
+    const size_t n_motors = config.controller.motors_count;
+    const size_t n_sensors = config.controller.sensors_count;
+#endif
+
     JsonArray motors_arr = ctrl_obj["motors"].to<JsonArray>();
-    for (size_t i = 0; i < config.controller.motors_count; ++i) {
+    for (size_t i = 0; i < n_motors; ++i) {
         JsonObject motor_obj = motors_arr.add<JsonObject>();
         serialize_motor(motor_obj, config.controller.motors[i]);
     }
 
     JsonArray sensors_arr = ctrl_obj["sensors"].to<JsonArray>();
-    for (size_t i = 0; i < config.controller.sensors_count; ++i) {
+    for (size_t i = 0; i < n_sensors; ++i) {
         JsonObject sensor_obj = sensors_arr.add<JsonObject>();
         serialize_sensor(sensor_obj, config.controller.sensors[i]);
     }
@@ -184,7 +199,7 @@ static size_t serialize_config(const EmbeddedConfig& config, char* buffer, size_
 }
 
 // Main parse function with full validation
-extern "C" __attribute__((used)) bool parse_config_arduinojson(const char* data, size_t size) {
+extern "C" __attribute__((used)) bool parse_config(const char* data, size_t size) {
     // Allocate JSON document (static to avoid stack overflow)
     static JsonDocument doc;
 
@@ -265,8 +280,12 @@ extern "C" __attribute__((used)) bool parse_config_arduinojson(const char* data,
     g_config.logging.max_files = log_obj["max_files"];
 
     // Serialize back to buffer
+#ifdef JF_PERF_ROUNDTRIP
+    size_t written = serialize_config(g_config, jf_perf_scratch, sizeof(jf_perf_scratch));
+#else
     char* d = const_cast<char*>(data);
     size_t written = serialize_config(g_config, d, size);
+#endif
 
     return written > 0;
 }
@@ -281,15 +300,23 @@ static size_t serialize_rpc_command(const RpcCommand& cmd, char* buffer, size_t 
     doc["sequence"] = cmd.sequence;
     doc["priority"] = cmd.priority;
 
+#ifdef JF_PERF_ROUNDTRIP
+    const size_t n_targets = RpcCommand::kMaxTargets;
+    const size_t n_params = RpcCommand::kMaxParams;
+#else
+    const size_t n_targets = cmd.targets_count;
+    const size_t n_params = cmd.params_count;
+#endif
+
     JsonArray targets_arr = doc["targets"].to<JsonArray>();
-    for (size_t i = 0; i < cmd.targets_count; ++i) {
+    for (size_t i = 0; i < n_targets; ++i) {
         JsonObject target_obj = targets_arr.add<JsonObject>();
         target_obj["device_id"] = cmd.targets[i].device_id.data();
         target_obj["subsystem"] = cmd.targets[i].subsystem.data();
     }
 
     JsonArray params_arr = doc["params"].to<JsonArray>();
-    for (size_t i = 0; i < cmd.params_count; ++i) {
+    for (size_t i = 0; i < n_params; ++i) {
         JsonObject param_obj = params_arr.add<JsonObject>();
         param_obj["key"] = cmd.params[i].key.data();
         if (cmd.params[i].int_value.has_value()) {
@@ -324,9 +351,13 @@ static size_t serialize_rpc_command(const RpcCommand& cmd, char* buffer, size_t 
 }
 
 // Parse RpcCommand (matching JsonFusion validation logic)
-extern "C" __attribute__((used)) bool parse_rpc_command_arduinojson(const char* data, size_t size) {
+extern "C" __attribute__((used)) bool parse_rpc_command(const char* data, size_t size) {
     static JsonDocument doc;
+#ifdef JF_PERF_ROUNDTRIP
+    RpcCommand rpc_cmd{};  // zero-init: full-array serialize touches unused slots
+#else
     RpcCommand rpc_cmd;  // Local variable
+#endif
 
     DeserializationError error = deserializeJson(doc, data, size);
     if (error) return false;
@@ -464,16 +495,20 @@ extern "C" __attribute__((used)) bool parse_rpc_command_arduinojson(const char* 
     }
 
     // Serialize back to buffer
+#ifdef JF_PERF_ROUNDTRIP
+    size_t written = serialize_rpc_command(rpc_cmd, jf_perf_scratch, sizeof(jf_perf_scratch));
+#else
     char* d = const_cast<char*>(data);
     size_t written = serialize_rpc_command(rpc_cmd, d, size);
+#endif
 
     return written > 0;
 }
 
 // Entry point
 int main() {
-    volatile bool result = parse_config_arduinojson("", 0);
-    volatile bool rpc_result = parse_rpc_command_arduinojson("", 0);
+    volatile bool result = parse_config("", 0);
+    volatile bool rpc_result = parse_rpc_command("", 0);
     (void)result;
     (void)rpc_result;
     while(1) {}

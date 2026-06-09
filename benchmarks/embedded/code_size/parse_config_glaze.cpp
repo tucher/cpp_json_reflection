@@ -159,11 +159,22 @@ struct glz::meta<embedded_benchmark::RpcCommand> {
 // Global config instance (will go in .bss section)
 embedded_benchmark::EmbeddedConfig g_config;
 
+#ifdef JF_PERF_ROUNDTRIP
+// Instruction-benchmark mode: serialize into a dedicated scratch buffer (also
+// avoids glz::write's unbounded write into the caller's buffer). The code-size
+// benchmark (no macro) is unaffected.
+static char jf_perf_scratch[16384];
+#endif
+
 extern "C" __attribute__((used)) bool parse_config(const char* data, size_t size) {
     auto error = glz::read<glz::opts_size{}>(g_config, std::string_view(data, size));
 
+#ifdef JF_PERF_ROUNDTRIP
+    auto w_err = glz::write<glz::opts_size{}>(g_config, jf_perf_scratch);
+#else
     char* d = const_cast<char*>(data);
     auto w_err = glz::write<glz::opts_size{}>(g_config, d);
+#endif
 
     return !error && !w_err;
 }
@@ -173,11 +184,19 @@ struct opts_size_strict : glz::opts_size {
 };
 
 extern "C" __attribute__((used)) bool parse_rpc_command(const char* data, size_t size) {
+#ifdef JF_PERF_ROUNDTRIP
+    embedded_benchmark::RpcCommand cmd{};  // zero-init: full-array serialize touches unused slots
+#else
     embedded_benchmark::RpcCommand cmd;
+#endif
     auto error = glz::read<opts_size_strict{}>(cmd, std::string_view(data, size));
 
+#ifdef JF_PERF_ROUNDTRIP
+    auto w_err = glz::write<glz::opts_size{}>(cmd, jf_perf_scratch);
+#else
     char* d = const_cast<char*>(data);
     auto w_err = glz::write<glz::opts_size{}>(cmd, d);
+#endif
     return !error && !w_err;
 }
 

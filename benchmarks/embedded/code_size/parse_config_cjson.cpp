@@ -13,6 +13,12 @@ extern "C" {
 // Global config instance
 embedded_benchmark::EmbeddedConfig g_config_cjson;
 
+#ifdef JF_PERF_ROUNDTRIP
+// Instruction-benchmark mode: serialize into a dedicated scratch buffer so the
+// parse input can be exactly the JSON. The code-size benchmark is unaffected.
+static char jf_perf_scratch[16384];
+#endif
+
 // Helper: safely copy string from cJSON string value to fixed buffer
 inline bool copy_cjson_string(const cJSON* item, char* dest, size_t dest_size) {
     if (!cJSON_IsString(item) || !item->valuestring) return false;
@@ -267,14 +273,26 @@ size_t serialize_config_cjson(const embedded_benchmark::EmbeddedConfig& config, 
     cJSON_AddStringToObject(ctrl_obj, "name", config.controller.name.data());
     cJSON_AddNumberToObject(ctrl_obj, "loop_hz", config.controller.loop_hz);
 
+    // In the instruction-benchmark round trip every library serializes the full
+    // fixed-size array (matching JsonFusion/Glaze, whose models have no count),
+    // so the work compared is equivalent. The code-size benchmark (no macro)
+    // serializes only the populated elements.
+#ifdef JF_PERF_ROUNDTRIP
+    const size_t n_motors = embedded_benchmark::EmbeddedConfig::kMaxMotors;
+    const size_t n_sensors = embedded_benchmark::EmbeddedConfig::kMaxSensors;
+#else
+    const size_t n_motors = config.controller.motors_count;
+    const size_t n_sensors = config.controller.sensors_count;
+#endif
+
     cJSON* motors_arr = cJSON_CreateArray();
-    for (size_t i = 0; i < config.controller.motors_count; ++i) {
+    for (size_t i = 0; i < n_motors; ++i) {
         cJSON_AddItemToArray(motors_arr, serialize_motor(config.controller.motors[i]));
     }
     cJSON_AddItemToObject(ctrl_obj, "motors", motors_arr);
 
     cJSON* sensors_arr = cJSON_CreateArray();
-    for (size_t i = 0; i < config.controller.sensors_count; ++i) {
+    for (size_t i = 0; i < n_sensors; ++i) {
         cJSON_AddItemToArray(sensors_arr, serialize_sensor(config.controller.sensors[i]));
     }
     cJSON_AddItemToObject(ctrl_obj, "sensors", sensors_arr);
@@ -301,7 +319,7 @@ size_t serialize_config_cjson(const embedded_benchmark::EmbeddedConfig& config, 
 }
 
 // Main parsing function
-extern "C" __attribute__((used)) bool parse_config_cjson(const char* data, size_t size) {
+extern "C" __attribute__((used)) bool parse_config(const char* data, size_t size) {
     // Parse JSON into DOM tree
     cJSON* root = cJSON_ParseWithLength(data, size);
     if (!root) {
@@ -378,8 +396,12 @@ cleanup:
 
     if (success) {
         // Serialize back to buffer
+#ifdef JF_PERF_ROUNDTRIP
+        size_t written = serialize_config_cjson(g_config_cjson, jf_perf_scratch, sizeof(jf_perf_scratch));
+#else
         char* d = const_cast<char*>(data);
         size_t written = serialize_config_cjson(g_config_cjson, d, size);
+#endif
         success = written > 0;
     }
 
@@ -395,8 +417,16 @@ size_t serialize_rpc_command_cjson(const embedded_benchmark::RpcCommand& cmd, ch
     cJSON_AddNumberToObject(root, "sequence", cmd.sequence);
     cJSON_AddNumberToObject(root, "priority", cmd.priority);
 
+#ifdef JF_PERF_ROUNDTRIP
+    const size_t n_targets = embedded_benchmark::RpcCommand::kMaxTargets;
+    const size_t n_params = embedded_benchmark::RpcCommand::kMaxParams;
+#else
+    const size_t n_targets = cmd.targets_count;
+    const size_t n_params = cmd.params_count;
+#endif
+
     cJSON* targets_arr = cJSON_CreateArray();
-    for (size_t i = 0; i < cmd.targets_count; ++i) {
+    for (size_t i = 0; i < n_targets; ++i) {
         cJSON* target_obj = cJSON_CreateObject();
         cJSON_AddStringToObject(target_obj, "device_id", cmd.targets[i].device_id.data());
         cJSON_AddStringToObject(target_obj, "subsystem", cmd.targets[i].subsystem.data());
@@ -405,7 +435,7 @@ size_t serialize_rpc_command_cjson(const embedded_benchmark::RpcCommand& cmd, ch
     cJSON_AddItemToObject(root, "targets", targets_arr);
 
     cJSON* params_arr = cJSON_CreateArray();
-    for (size_t i = 0; i < cmd.params_count; ++i) {
+    for (size_t i = 0; i < n_params; ++i) {
         cJSON* param_obj = cJSON_CreateObject();
         cJSON_AddStringToObject(param_obj, "key", cmd.params[i].key.data());
         if (cmd.params[i].int_value.has_value()) {
@@ -454,8 +484,12 @@ size_t serialize_rpc_command_cjson(const embedded_benchmark::RpcCommand& cmd, ch
 }
 
 // Parse RpcCommand
-extern "C" __attribute__((used)) bool parse_rpc_command_cjson(const char* data, size_t size) {
+extern "C" __attribute__((used)) bool parse_rpc_command(const char* data, size_t size) {
+#ifdef JF_PERF_ROUNDTRIP
+    embedded_benchmark::RpcCommand rpc_cmd{};  // zero-init: full-array serialize touches unused slots
+#else
     embedded_benchmark::RpcCommand rpc_cmd;  // Local variable
+#endif
     cJSON* root = cJSON_ParseWithLength(data, size);
     if (!root) return false;
 
@@ -686,8 +720,12 @@ cleanup:
 
     if (success) {
         // Serialize back to buffer
+#ifdef JF_PERF_ROUNDTRIP
+        size_t written = serialize_rpc_command_cjson(rpc_cmd, jf_perf_scratch, sizeof(jf_perf_scratch));
+#else
         char* d = const_cast<char*>(data);
         size_t written = serialize_rpc_command_cjson(rpc_cmd, d, size);
+#endif
         success = written > 0;
     }
 
@@ -696,8 +734,8 @@ cleanup:
 
 // Entry point
 extern "C" __attribute__((used)) int main() {
-    volatile bool result = parse_config_cjson("", 0);
-    volatile bool rpc_result = parse_rpc_command_cjson("", 0);
+    volatile bool result = parse_config("", 0);
+    volatile bool rpc_result = parse_rpc_command("", 0);
     (void)result;
     (void)rpc_result;
     while(1) {}

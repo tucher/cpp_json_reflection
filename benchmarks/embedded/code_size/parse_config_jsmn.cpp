@@ -284,7 +284,7 @@ bool parse_logging(const char* json, const jsmntok_t* tokens, int& idx, embedded
 }
 
 // Main parsing function
-extern "C" __attribute__((used)) bool parse_config_jsmn(const char* data, size_t size) {
+extern "C" __attribute__((used)) bool parse_config(const char* data, size_t size) {
     // Initialize parser
     jsmn_parser parser;
     jsmn_init(&parser);
@@ -400,7 +400,7 @@ bool parse_rpc_parameter(const char* json, const jsmntok_t* tokens, int& idx, em
 }
 
 // Parse RpcCommand
-extern "C" __attribute__((used)) bool parse_rpc_command_jsmn(const char* data, size_t size) {
+extern "C" __attribute__((used)) bool parse_rpc_command(const char* data, size_t size) {
     embedded_benchmark::RpcCommand rpc_cmd;  // Local variable
     jsmn_parser parser;
     jsmn_init(&parser);
@@ -542,8 +542,8 @@ extern "C" __attribute__((used)) bool parse_rpc_command_jsmn(const char* data, s
 
 // Entry point
 extern "C" __attribute__((used)) int main() {
-    volatile bool result = parse_config_jsmn("", 0);
-    volatile bool rpc_result = parse_rpc_command_jsmn("", 0);
+    volatile bool result = parse_config("", 0);
+    volatile bool rpc_result = parse_rpc_command("", 0);
     (void)result;
     (void)rpc_result;
     while(1) {}

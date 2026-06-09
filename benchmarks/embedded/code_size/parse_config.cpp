@@ -150,24 +150,44 @@ using RpcCommand = A<RpcCommand_, required<"command_id", "timestamp_us", "target
 // Global config instance (will go in .bss section)
 EmbeddedConfig g_config;
 
+#ifdef JF_PERF_ROUNDTRIP
+// Instruction-benchmark mode: serialize into a dedicated scratch buffer so the
+// parse input can be exactly the JSON (no trailing-whitespace padding skews the
+// parse measurement). The code-size benchmark (no macro) keeps the original
+// in-place round trip and is unaffected.
+static char jf_perf_scratch[16384];
+#endif
+
 // Parse function - instantiates JsonFusion parser for this model
 // This is what gets measured for code size
 extern "C" __attribute__((used)) bool parse_config(const char* data, size_t size) {
     auto result = JsonFusion::Parse(g_config, std::string_view(data, size));
 
+#ifdef JF_PERF_ROUNDTRIP
+    auto result_s = JsonFusion::Serialize(g_config, jf_perf_scratch, jf_perf_scratch + sizeof(jf_perf_scratch));
+#else
     char* d = const_cast<char*>(data);
     auto result_s = JsonFusion::Serialize(g_config, d, d + size);
+#endif
 
     return !!result  && !!result_s;
 }
 
 extern "C" __attribute__((used)) bool parse_rpc_command(const char* data, size_t size) {
+#ifdef JF_PERF_ROUNDTRIP
+    RpcCommand cmd{};  // zero-init: full-array serialize touches unused slots
+#else
     RpcCommand cmd;
+#endif
     auto result = JsonFusion::Parse(cmd, std::string_view(data, size));
-    
+
+#ifdef JF_PERF_ROUNDTRIP
+    auto result_s = JsonFusion::Serialize(cmd, jf_perf_scratch, jf_perf_scratch + sizeof(jf_perf_scratch));
+#else
     char* d = const_cast<char*>(data);
     auto result_s = JsonFusion::Serialize(cmd, d, d + size);
-        
+#endif
+
     return !!result && !!result_s;
 }
 

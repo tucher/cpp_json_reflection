@@ -61,6 +61,26 @@ jobs:
           echo "Xtensa toolchain dir: ${XTENSA_DIR}"
           echo "$HOME/xtensa/${XTENSA_DIR}/bin" >> "$GITHUB_PATH"
 
+      - name: Install Renode (for ARM instruction-count benchmark)
+        run: |
+          # Self-contained .NET portable build — no mono/apt deps needed.
+          RENODE_VERSION=1.16.1
+          ARCHIVE="renode-${RENODE_VERSION}.linux-portable-dotnet.tar.gz"
+          URL="https://github.com/renode/renode/releases/download/v${RENODE_VERSION}/${ARCHIVE}"
+
+          mkdir -p "$HOME/renode"
+          cd "$HOME/renode"
+
+          echo "Downloading ${URL} ..."
+          wget -q "${URL}"
+
+          echo "Extracting ${ARCHIVE} ..."
+          tar -xzf "${ARCHIVE}" --strip-components=1
+          rm "${ARCHIVE}"
+
+          # Expose the launcher as $RENODE for the benchmark script
+          echo "RENODE=$HOME/renode/renode" >> "$GITHUB_ENV"
+
       - name: Check ARM GCC
         run: |
           which arm-none-eabi-gcc || echo "arm-none-eabi-gcc not found in PATH"
@@ -70,7 +90,11 @@ jobs:
         run: |
           which xtensa-esp-elf-gcc || echo "xtensa-esp-elf-gcc not found in PATH"
           xtensa-esp-elf-gcc --version
-      
+
+      - name: Check Renode
+        run: |
+          "$RENODE" --version || echo "renode not runnable at $RENODE"
+
       - name: Run ARM Cortex-M benchmarks
         run: |
           mkdir -p ci_out
@@ -81,6 +105,14 @@ jobs:
         run: |
           # Run ESP32 benchmarks
           python3 benchmarks/embedded/code_size/build.py --platform esp32 2>&1 | tee ci_out/benchmarks_esp32.log
+
+      - name: Run ARM Cortex-M instruction-count benchmark (Renode)
+        run: |
+          mkdir -p ci_out
+          # Functional (not cycle-accurate) instruction counts for parse+serialize.
+          # Reuses libs/ cloned by the ARM code-size step above; ARM-only (Renode
+          # Xtensa support is too limited for ESP32).
+          python3 benchmarks/embedded/code_size/renode_instructions.py --renode "$RENODE" 2>&1 | tee ci_out/instructions_arm.log
 
       - name: Attach benchmark logs to job summary
         run: |
@@ -95,6 +127,11 @@ jobs:
             echo '### ESP32 Results'
             echo '```'
             tail -n 20 ci_out/benchmarks_esp32.log
+            echo '```'
+            echo
+            echo '### ARM Cortex-M Instruction Counts (Renode, parse+serialize)'
+            echo '```'
+            tail -n 20 ci_out/instructions_arm.log
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 

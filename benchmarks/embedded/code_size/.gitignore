@@ -20,6 +20,9 @@ libs/
 ArduinoJson.h
 ArduinoJson-*.h
 
+# Renode instruction-benchmark build artifacts (objects, ELFs, generated .resc)
+.renode_build/
+
 # Python
 __pycache__/
 *.pyc

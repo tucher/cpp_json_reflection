@@ -32,6 +32,12 @@ using Rpc = embedded_benchmark::RpcCommand;
 // Global config instance (mirrors the other benchmark files)
 EC g_config_yajl;
 
+#ifdef JF_PERF_ROUNDTRIP
+// Instruction-benchmark mode: serialize into a dedicated scratch buffer so the
+// parse input can be exactly the JSON. The code-size benchmark is unaffected.
+static char jf_perf_scratch[16384];
+#endif
+
 // ---------------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------------
@@ -356,9 +362,18 @@ static size_t serialize_config_yajl(const EC& cfg, char* buffer, size_t buffer_s
     gen_str(g, "name");    gen_str(g, cfg.controller.name.data());
     gen_str(g, "loop_hz"); yajl_gen_integer(g, cfg.controller.loop_hz);
 
+    // Round-trip benchmark serializes the full fixed array (see cJSON note).
+#ifdef JF_PERF_ROUNDTRIP
+    const size_t n_motors = EC::kMaxMotors;
+    const size_t n_sensors = EC::kMaxSensors;
+#else
+    const size_t n_motors = cfg.controller.motors_count;
+    const size_t n_sensors = cfg.controller.sensors_count;
+#endif
+
     gen_str(g, "motors");
     yajl_gen_array_open(g);
-    for (size_t i = 0; i < cfg.controller.motors_count; ++i) {
+    for (size_t i = 0; i < n_motors; ++i) {
         const auto& m = cfg.controller.motors[i];
         yajl_gen_map_open(g);
         gen_str(g, "id");   yajl_gen_integer(g, static_cast<long long>(m.id));
@@ -378,7 +393,7 @@ static size_t serialize_config_yajl(const EC& cfg, char* buffer, size_t buffer_s
 
     gen_str(g, "sensors");
     yajl_gen_array_open(g);
-    for (size_t i = 0; i < cfg.controller.sensors_count; ++i) {
+    for (size_t i = 0; i < n_sensors; ++i) {
         const auto& sn = cfg.controller.sensors[i];
         yajl_gen_map_open(g);
         gen_str(g, "type");      gen_str(g, sn.type.data());
@@ -415,7 +430,7 @@ static size_t serialize_config_yajl(const EC& cfg, char* buffer, size_t buffer_s
 // EmbeddedConfig entry point
 // ---------------------------------------------------------------------------
 
-extern "C" __attribute__((used)) bool parse_config_yajl(const char* data, size_t size) {
+extern "C" __attribute__((used)) bool parse_config(const char* data, size_t size) {
     g_config_yajl.fallback_network_conf.reset();
     g_config_yajl.controller.motors_count = 0;
     g_config_yajl.controller.sensors_count = 0;
@@ -432,8 +447,12 @@ extern "C" __attribute__((used)) bool parse_config_yajl(const char* data, size_t
 
     bool success = (st == yajl_status_ok) && ctx.ok && (ctx.seen == ec_sax::SEEN_ALL);
     if (success) {
+#ifdef JF_PERF_ROUNDTRIP
+        success = serialize_config_yajl(g_config_yajl, jf_perf_scratch, sizeof(jf_perf_scratch)) > 0;
+#else
         char* d = const_cast<char*>(data);
         success = serialize_config_yajl(g_config_yajl, d, size) > 0;
+#endif
     }
     return success;
 }
@@ -669,9 +688,17 @@ static size_t serialize_rpc_command_yajl(const Rpc& cmd, char* buffer, size_t bu
     gen_str(g, "sequence");     yajl_gen_integer(g, cmd.sequence);
     gen_str(g, "priority");     yajl_gen_integer(g, cmd.priority);
 
+#ifdef JF_PERF_ROUNDTRIP
+    const size_t n_targets = Rpc::kMaxTargets;
+    const size_t n_params = Rpc::kMaxParams;
+#else
+    const size_t n_targets = cmd.targets_count;
+    const size_t n_params = cmd.params_count;
+#endif
+
     gen_str(g, "targets");
     yajl_gen_array_open(g);
-    for (size_t i = 0; i < cmd.targets_count; ++i) {
+    for (size_t i = 0; i < n_targets; ++i) {
         yajl_gen_map_open(g);
         gen_str(g, "device_id"); gen_str(g, cmd.targets[i].device_id.data());
         gen_str(g, "subsystem"); gen_str(g, cmd.targets[i].subsystem.data());
@@ -681,7 +708,7 @@ static size_t serialize_rpc_command_yajl(const Rpc& cmd, char* buffer, size_t bu
 
     gen_str(g, "params");
     yajl_gen_array_open(g);
-    for (size_t i = 0; i < cmd.params_count; ++i) {
+    for (size_t i = 0; i < n_params; ++i) {
         const auto& p = cmd.params[i];
         yajl_gen_map_open(g);
         gen_str(g, "key"); gen_str(g, p.key.data());
@@ -728,8 +755,12 @@ static size_t serialize_rpc_command_yajl(const Rpc& cmd, char* buffer, size_t bu
 // RpcCommand entry point
 // ---------------------------------------------------------------------------
 
-extern "C" __attribute__((used)) bool parse_rpc_command_yajl(const char* data, size_t size) {
+extern "C" __attribute__((used)) bool parse_rpc_command(const char* data, size_t size) {
+#ifdef JF_PERF_ROUNDTRIP
+    Rpc cmd{};  // zero-init: full-array serialize touches unused slots
+#else
     Rpc cmd;
+#endif
     rpc_sax::Ctx ctx;
     ctx.cmd = &cmd;
 
@@ -742,8 +773,12 @@ extern "C" __attribute__((used)) bool parse_rpc_command_yajl(const char* data, s
 
     bool success = (st == yajl_status_ok) && ctx.ok && (ctx.seen == rpc_sax::SEEN_ALL);
     if (success) {
+#ifdef JF_PERF_ROUNDTRIP
+        success = serialize_rpc_command_yajl(cmd, jf_perf_scratch, sizeof(jf_perf_scratch)) > 0;
+#else
         char* d = const_cast<char*>(data);
         success = serialize_rpc_command_yajl(cmd, d, size) > 0;
+#endif
     }
     return success;
 }
@@ -753,8 +788,8 @@ extern "C" __attribute__((used)) bool parse_rpc_command_yajl(const char* data, s
 // ---------------------------------------------------------------------------
 
 extern "C" __attribute__((used)) int main() {
-    volatile bool result = parse_config_yajl("", 0);
-    volatile bool rpc_result = parse_rpc_command_yajl("", 0);
+    volatile bool result = parse_config("", 0);
+    volatile bool rpc_result = parse_rpc_command("", 0);
     (void)result;
     (void)rpc_result;
     while (1) {}

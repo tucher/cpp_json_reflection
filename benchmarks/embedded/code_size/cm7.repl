@@ -1,0 +1,18 @@
+// Minimal Cortex-M7 platform for the Renode instruction-count benchmark.
+// The benchmark ELFs are linked with the default arm-none-eabi script (code at
+// 0x8000, stack top at 0x80000), so a single flat RAM region over 0x0..0x100000
+// is enough to load and run them. crt0 sets SP in software, so we don't need a
+// real vector table.
+
+mem: Memory.MappedMemory @ sysbus 0x0
+    size: 0x100000
+
+nvic: IRQControllers.NVIC @ sysbus 0xE000E000
+    priorityMask: 0xF0
+    systickFrequency: 216000000
+    IRQ -> cpu@0
+
+cpu: CPU.CortexM @ sysbus
+    cpuType: "cortex-m7"
+    PerformanceInMips: 462
+    nvic: nvic
