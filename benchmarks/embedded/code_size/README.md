@@ -62,3 +62,4 @@ Create minimal hand-written parser (no validation, error-prone).
 - ArduinoJson
 - jsmn (minimal tokenizer)
 - cJSON
+- yajl (event-driven / SAX parser)

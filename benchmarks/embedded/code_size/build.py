@@ -38,10 +38,13 @@ class Library:
     source_file: str
     description: str
     dependencies: List[str] = None  # URLs or file paths to download
-    
+    extra_flags: List[str] = None   # Per-library compile flags (e.g. -fpermissive)
+
     def __post_init__(self):
         if self.dependencies is None:
             self.dependencies = []
+        if self.extra_flags is None:
+            self.extra_flags = []
 
 
 @dataclass
@@ -157,8 +160,8 @@ def get_libraries_for_platform(platform: TargetPlatform) -> List[Library]:
         Library(
             name="ArduinoJson",
             source_file="parse_config_arduinojson.cpp",
-            description="ArduinoJson v7.2.1",
-            dependencies=["https://github.com/bblanchon/ArduinoJson/releases/download/v7.4.2/ArduinoJson-v7.4.2.h"],
+            description="ArduinoJson v7.4.3",
+            dependencies=["https://github.com/bblanchon/ArduinoJson/releases/download/v7.4.3/ArduinoJson-v7.4.3.h"],
         ),
         Library(
             name="cJSON",
@@ -187,6 +190,20 @@ def get_libraries_for_platform(platform: TargetPlatform) -> List[Library]:
             )
         )
     if platform.compiler_prefix != "avr-":
+        libraries.append(
+            Library(
+                name="yajl",
+                source_file="parse_config_yajl.cpp",
+                description="yajl - event-driven (SAX) JSON parser in C",
+                dependencies=["git:https://github.com/lloyd/yajl.git"],
+                # yajl's C sources are unity-included into the C++ TU. They use
+                # C-isms that are hard errors in C++ (implicit void*->T* casts,
+                # int->enum). These diagnostics are tagged [-fpermissive]; the
+                # flag downgrades them to warnings without changing codegen, so
+                # the measured .text size is unaffected.
+                extra_flags=["-fpermissive"],
+            )
+        )
         libraries.append(
             Library(
                 name="JsonFusion CBOR",
@@ -245,6 +262,7 @@ class EmbeddedBenchmark:
             f"-I{self.script_dir}/libs/glaze/include",  # For Glaze library
             f"-I{self.script_dir}/libs/cJSON",  # For cJSON library
             f"-I{self.script_dir}/libs/jsmn",  # For jsmn library
+            f"-I{self.script_dir}/libs/yajl/include",  # For yajl public headers (<yajl/...>)
         ]
         self.version_info = {}  # Store version/commit info for each library
         self.results: Dict[str, Dict[str, int]] = {}  # config -> {lib: text_size}
@@ -331,7 +349,7 @@ class EmbeddedBenchmark:
                     # HTTP download dependency
                     filename = Path(dep).name
                     dest_path = libs_dir / filename
-                    
+
                     if dest_path.exists():
                         print(f"✓ {filename} already exists")
                     else:
@@ -342,7 +360,7 @@ class EmbeddedBenchmark:
                         except Exception as e:
                             print(Colors.red(f"✗ Failed to download {filename}: {e}"))
                             sys.exit(1)
-                    
+
                     # Special handling for ArduinoJson - create ArduinoJson.h from versioned file
                     if "ArduinoJson" in filename and filename != "ArduinoJson.h":
                         arduino_header = libs_dir / "ArduinoJson.h"
@@ -356,7 +374,57 @@ class EmbeddedBenchmark:
                                 sys.exit(1)
                         else:
                             print(f"✓ ArduinoJson.h already exists")
+
+            # Special handling for yajl - assemble the include/yajl/ header dir.
+            # yajl normally builds via CMake, which copies its public headers into
+            # <build>/include/yajl/ and generates yajl_version.h from a template.
+            # We reproduce that here so the single-TU unity build can resolve the
+            # <yajl/...> includes without running CMake.
+            if lib.name == "yajl":
+                self.setup_yajl_headers(libs_dir / "yajl")
         print()
+
+    def setup_yajl_headers(self, yajl_dir: Path):
+        """Assemble libs/yajl/include/yajl/ the way yajl's CMake build would.
+
+        Copies the public API headers into an include/yajl/ directory and
+        synthesizes yajl_version.h from the .cmake template (reading the version
+        numbers out of the top-level CMakeLists.txt).
+        """
+        import re
+
+        src_api = yajl_dir / "src" / "api"
+        inc_dir = yajl_dir / "include" / "yajl"
+        version_header = inc_dir / "yajl_version.h"
+
+        if version_header.exists():
+            print(f"✓ yajl headers already assembled")
+            return
+
+        inc_dir.mkdir(parents=True, exist_ok=True)
+
+        # Copy the public headers
+        for header in ("yajl_common.h", "yajl_parse.h", "yajl_gen.h", "yajl_tree.h"):
+            src = src_api / header
+            if src.exists():
+                shutil.copy(src, inc_dir / header)
+
+        # Read version numbers from the top-level CMakeLists.txt
+        versions = {"YAJL_MAJOR": "0", "YAJL_MINOR": "0", "YAJL_MICRO": "0"}
+        cmake_lists = yajl_dir / "CMakeLists.txt"
+        if cmake_lists.exists():
+            text = cmake_lists.read_text()
+            for key in versions:
+                m = re.search(rf"SET\s*\(\s*{key}\s+(\d+)\s*\)", text)
+                if m:
+                    versions[key] = m.group(1)
+
+        # Generate yajl_version.h from the .cmake template
+        template = (src_api / "yajl_version.h.cmake").read_text()
+        for key, val in versions.items():
+            template = template.replace("${" + key + "}", val)
+        version_header.write_text(template)
+        print(Colors.green(f"✓ Assembled yajl headers (v{versions['YAJL_MAJOR']}.{versions['YAJL_MINOR']}.{versions['YAJL_MICRO']})"))
     
     def compile(self, lib: Library, config: BuildConfig) -> Path:
         """Compile source to object file"""
@@ -368,6 +436,7 @@ class EmbeddedBenchmark:
             "-std=c++23",
             *EMBEDDED_FLAGS,
             *config.opt_flags,
+            *lib.extra_flags,
             *self.includes,
             "-c", str(source),
             "-o", str(output_o),
@@ -683,6 +752,23 @@ class EmbeddedBenchmark:
                     return "unknown"
             return "unknown"
         
+        # yajl - get git commit
+        elif lib_name == "yajl":
+            yajl_dir = self.script_dir / "libs" / "yajl"
+            if yajl_dir.exists():
+                try:
+                    result = subprocess.run(
+                        ["git", "rev-parse", "--short=8", "HEAD"],
+                        cwd=yajl_dir,
+                        capture_output=True,
+                        text=True,
+                        check=True
+                    )
+                    return result.stdout.strip()
+                except subprocess.CalledProcessError:
+                    return "unknown"
+            return "unknown"
+
         # jsmn - get git commit
         elif lib_name == "jsmn":
             jsmn_dir = self.script_dir / "libs" / "jsmn"

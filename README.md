@@ -585,11 +585,12 @@ JsonFusion is benchmarked on multiple embedded platforms: **ARM Cortex-M7/M0+** 
 
 | Library                               |     M7    |    M0+    |  Version   |
 |---------------------------------------|-----------|-----------|------------|
-| **JsonFusion CBOR**                   |  17.0 KB |  24.2 KB | e5d2c363   |
-| ArduinoJson                           |  20.0 KB |  29.2 KB | v7.4.2     |
-| **JsonFusion**                        |  21.5 KB |  31.4 KB | e5d2c363   |
-| cJSON                                 |  25.3 KB |  35.2 KB | a29814f2   |
-| Glaze(with embedded-friendly config)  |  28.4 KB |  37.1 KB | a67f6f03   |
+| **JsonFusion CBOR**                   |  17.0 KB |  24.2 KB | 58c6d8e6   |
+| ArduinoJson                           |  20.0 KB |  29.2 KB | v7.4.3     |
+| **JsonFusion**                        |  21.5 KB |  31.4 KB | 58c6d8e6   |
+| cJSON                                 |  25.4 KB |  35.2 KB | fb16e5cf   |
+| yajl                                  |  28.2 KB |  37.4 KB | 5e3a7856   |
+| Glaze(with embedded-friendly config)  |  29.8 KB |  36.3 KB | ed83d92d   |
 
 **Key Takeaways:**
 
@@ -613,11 +614,12 @@ JsonFusion is benchmarked on multiple embedded platforms: **ARM Cortex-M7/M0+** 
 
 | Library                               |   ESP32   |  Version   |
 |---------------------------------------|-----------|------------|
-| **JsonFusion CBOR**                   |  20.3 KB | e5d2c363   |
-| ArduinoJson                           |  25.1 KB | v7.4.2     |
-| **JsonFusion**                        |  25.7 KB | e5d2c363   |
-| Glaze(with embedded-friendly config)  |  33.9 KB | a67f6f03   |
-| cJSON                                 |  65.1 KB | a29814f2   |
+| **JsonFusion CBOR**                   |  20.3 KB | 58c6d8e6   |
+| ArduinoJson                           |  25.1 KB | v7.4.3     |
+| **JsonFusion**                        |  25.7 KB | 58c6d8e6   |
+| Glaze(with embedded-friendly config)  |  34.5 KB | ed83d92d   |
+| yajl                                  |  58.8 KB | 5e3a7856   |
+| cJSON                                 |  65.1 KB | fb16e5cf   |
 
 **Key Takeaways:**
 
