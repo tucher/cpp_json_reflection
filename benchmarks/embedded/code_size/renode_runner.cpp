@@ -52,10 +52,16 @@ static char rpc_buf[8192] =
 
 // ---- Measurement markers (distinct bodies so they can't be folded together) --
 
-extern "C" __attribute__((used, noinline)) void cfg_begin()       { asm volatile("nop"             ::: "memory"); }
-extern "C" __attribute__((used, noinline)) void cfg_end(int ok)    { (void)ok; asm volatile("nop;nop"       ::: "memory"); }
-extern "C" __attribute__((used, noinline)) void rpc_begin()       { asm volatile("nop;nop;nop"     ::: "memory"); }
-extern "C" __attribute__((used, noinline)) void rpc_end(int ok)    { (void)ok; asm volatile("nop;nop;nop;nop" ::: "memory"); }
+// begin -> mid brackets the parse, mid -> end brackets the serialize. The
+// parse_config/parse_rpc_command functions call the *_mid markers between the
+// two halves (only under -DJF_PERF_ROUNDTRIP). Distinct nop counts keep the
+// linker from folding these empty functions together.
+extern "C" __attribute__((used, noinline)) void cfg_begin()     { asm volatile("nop"                 ::: "memory"); }
+extern "C" __attribute__((used, noinline)) void cfg_mid()       { asm volatile("nop;nop;nop;nop;nop" ::: "memory"); }
+extern "C" __attribute__((used, noinline)) void cfg_end(int ok) { (void)ok; asm volatile("nop;nop"   ::: "memory"); }
+extern "C" __attribute__((used, noinline)) void rpc_begin()     { asm volatile("nop;nop;nop"         ::: "memory"); }
+extern "C" __attribute__((used, noinline)) void rpc_mid()       { asm volatile("nop;nop;nop;nop;nop;nop" ::: "memory"); }
+extern "C" __attribute__((used, noinline)) void rpc_end(int ok) { (void)ok; asm volatile("nop;nop;nop;nop" ::: "memory"); }
 
 // ---- Bump-allocator heap (backs malloc; nosys _sbrk would fail) --------------
 

@@ -15,6 +15,8 @@ EmbeddedConfig g_config;
 // Instruction-benchmark mode: serialize into a dedicated scratch buffer so the
 // parse input can be exactly the JSON. The code-size benchmark is unaffected.
 static char jf_perf_scratch[16384];
+extern "C" void cfg_mid();  // parse/serialize boundary markers (defined in the runner)
+extern "C" void rpc_mid();
 #endif
 
 // Helper: Copy JSON string to fixed-size array
@@ -281,6 +283,7 @@ extern "C" __attribute__((used)) bool parse_config(const char* data, size_t size
 
     // Serialize back to buffer
 #ifdef JF_PERF_ROUNDTRIP
+    cfg_mid();
     size_t written = serialize_config(g_config, jf_perf_scratch, sizeof(jf_perf_scratch));
 #else
     char* d = const_cast<char*>(data);
@@ -496,6 +499,7 @@ extern "C" __attribute__((used)) bool parse_rpc_command(const char* data, size_t
 
     // Serialize back to buffer
 #ifdef JF_PERF_ROUNDTRIP
+    rpc_mid();
     size_t written = serialize_rpc_command(rpc_cmd, jf_perf_scratch, sizeof(jf_perf_scratch));
 #else
     char* d = const_cast<char*>(data);

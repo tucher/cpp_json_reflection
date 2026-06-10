@@ -17,6 +17,8 @@ embedded_benchmark::EmbeddedConfig g_config_cjson;
 // Instruction-benchmark mode: serialize into a dedicated scratch buffer so the
 // parse input can be exactly the JSON. The code-size benchmark is unaffected.
 static char jf_perf_scratch[16384];
+extern "C" void cfg_mid();  // parse/serialize boundary markers (defined in the runner)
+extern "C" void rpc_mid();
 #endif
 
 // Helper: safely copy string from cJSON string value to fixed buffer
@@ -397,6 +399,7 @@ cleanup:
     if (success) {
         // Serialize back to buffer
 #ifdef JF_PERF_ROUNDTRIP
+        cfg_mid();
         size_t written = serialize_config_cjson(g_config_cjson, jf_perf_scratch, sizeof(jf_perf_scratch));
 #else
         char* d = const_cast<char*>(data);
@@ -721,6 +724,7 @@ cleanup:
     if (success) {
         // Serialize back to buffer
 #ifdef JF_PERF_ROUNDTRIP
+        rpc_mid();
         size_t written = serialize_rpc_command_cjson(rpc_cmd, jf_perf_scratch, sizeof(jf_perf_scratch));
 #else
         char* d = const_cast<char*>(data);

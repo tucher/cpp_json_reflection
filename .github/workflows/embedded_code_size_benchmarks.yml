@@ -129,9 +129,9 @@ jobs:
             tail -n 20 ci_out/benchmarks_esp32.log
             echo '```'
             echo
-            echo '### ARM Cortex-M Instruction Counts (Renode, parse+serialize)'
+            echo '### ARM Cortex-M Instruction Counts (Renode, parse+serialize, -Os & -O3)'
             echo '```'
-            tail -n 20 ci_out/instructions_arm.log
+            tail -n 45 ci_out/instructions_arm.log
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 

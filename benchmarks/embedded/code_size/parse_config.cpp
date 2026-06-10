@@ -156,6 +156,8 @@ EmbeddedConfig g_config;
 // parse measurement). The code-size benchmark (no macro) keeps the original
 // in-place round trip and is unaffected.
 static char jf_perf_scratch[16384];
+extern "C" void cfg_mid();  // parse/serialize boundary markers (defined in the runner)
+extern "C" void rpc_mid();
 #endif
 
 // Parse function - instantiates JsonFusion parser for this model
@@ -164,6 +166,7 @@ extern "C" __attribute__((used)) bool parse_config(const char* data, size_t size
     auto result = JsonFusion::Parse(g_config, std::string_view(data, size));
 
 #ifdef JF_PERF_ROUNDTRIP
+    cfg_mid();
     auto result_s = JsonFusion::Serialize(g_config, jf_perf_scratch, jf_perf_scratch + sizeof(jf_perf_scratch));
 #else
     char* d = const_cast<char*>(data);
@@ -182,6 +185,7 @@ extern "C" __attribute__((used)) bool parse_rpc_command(const char* data, size_t
     auto result = JsonFusion::Parse(cmd, std::string_view(data, size));
 
 #ifdef JF_PERF_ROUNDTRIP
+    rpc_mid();
     auto result_s = JsonFusion::Serialize(cmd, jf_perf_scratch, jf_perf_scratch + sizeof(jf_perf_scratch));
 #else
     char* d = const_cast<char*>(data);

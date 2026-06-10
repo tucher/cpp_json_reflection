@@ -164,12 +164,15 @@ embedded_benchmark::EmbeddedConfig g_config;
 // avoids glz::write's unbounded write into the caller's buffer). The code-size
 // benchmark (no macro) is unaffected.
 static char jf_perf_scratch[16384];
+extern "C" void cfg_mid();  // parse/serialize boundary markers (defined in the runner)
+extern "C" void rpc_mid();
 #endif
 
 extern "C" __attribute__((used)) bool parse_config(const char* data, size_t size) {
     auto error = glz::read<glz::opts_size{}>(g_config, std::string_view(data, size));
 
 #ifdef JF_PERF_ROUNDTRIP
+    cfg_mid();
     auto w_err = glz::write<glz::opts_size{}>(g_config, jf_perf_scratch);
 #else
     char* d = const_cast<char*>(data);
@@ -192,6 +195,7 @@ extern "C" __attribute__((used)) bool parse_rpc_command(const char* data, size_t
     auto error = glz::read<opts_size_strict{}>(cmd, std::string_view(data, size));
 
 #ifdef JF_PERF_ROUNDTRIP
+    rpc_mid();
     auto w_err = glz::write<glz::opts_size{}>(cmd, jf_perf_scratch);
 #else
     char* d = const_cast<char*>(data);

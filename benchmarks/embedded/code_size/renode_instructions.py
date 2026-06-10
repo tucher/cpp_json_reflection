@@ -45,17 +45,19 @@ DEFAULT_RENODE = "/Applications/Renode.app/Contents/MacOS/renode"
 
 CC = "arm-none-eabi-g++"
 
-# Compile/link flags mirror build.py's "M7 -Os" configuration so the measured
-# work matches the code that the size benchmark reports.
+# Compile/link flags mirror build.py's Cortex-M7 configuration so the measured
+# work matches the code the size benchmark reports. Built at two optimization
+# levels: -Os (size, what the size benchmark uses) and -O3 (speed).
 EMBEDDED_FLAGS = [
     "-Wall", "-fno-exceptions", "-fno-rtti", "-ffunction-sections",
     "-fdata-sections", "-DNDEBUG", "-fno-unwind-tables",
     "-fno-asynchronous-unwind-tables",
 ]
-M7_FLAGS = [
-    "-Os", "-flto", "-mcpu=cortex-m7", "-mthumb", "-mfloat-abi=hard",
+ARCH_FLAGS = [
+    "-flto", "-mcpu=cortex-m7", "-mthumb", "-mfloat-abi=hard",
     "-mfpu=fpv5-d16", "-fno-threadsafe-statics",
 ]
+OPT_LEVELS = ["-Os", "-O3"]  # measured separately
 LINK_SPECS = ["-specs=nano.specs", "-specs=nosys.specs"]
 
 INCLUDES = [
@@ -88,7 +90,7 @@ LIBRARIES = [
     Library("yajl", "parse_config_yajl.cpp", extra_flags=["-fpermissive"]),
 ]
 
-MARKERS = ["cfg_begin", "cfg_end", "rpc_begin", "rpc_end"]
+MARKERS = ["cfg_begin", "cfg_mid", "cfg_end", "rpc_begin", "rpc_mid", "rpc_end"]
 
 
 class Colors:
@@ -104,44 +106,46 @@ def run(cmd, **kw):
     return subprocess.run(cmd, capture_output=True, text=True, **kw)
 
 
-def build_elf(lib: Library, build_dir: Path) -> Path:
-    """Compile the library + runner into a runnable ELF."""
-    parse_o = build_dir / f"parse_{lib.name}.o"
-    runner_o = build_dir / f"runner_{lib.name}.o"
-    elf = build_dir / f"bench_{lib.name}.elf"
+def build_elf(lib: Library, opt: str, build_dir: Path) -> Path:
+    """Compile the library + runner into a runnable ELF at optimization level `opt`."""
+    olabel = opt.lstrip("-")  # "Os" / "O3"
+    opt_flags = [opt, *ARCH_FLAGS]
+    parse_o = build_dir / f"parse_{lib.name}_{olabel}.o"
+    runner_o = build_dir / f"runner_{lib.name}_{olabel}.o"
+    elf = build_dir / f"bench_{lib.name}_{olabel}.elf"
 
     # Library parse code, with its own main() renamed out of the way.
     # JF_PERF_ROUNDTRIP: serialize the full fixed arrays into a scratch buffer so
     # every library does equivalent serialize work and parse input is exact.
     cc_parse = [
-        CC, "-std=c++23", *EMBEDDED_FLAGS, *M7_FLAGS, *lib.extra_flags,
+        CC, "-std=c++23", *EMBEDDED_FLAGS, *opt_flags, *lib.extra_flags,
         "-DJF_PERF_ROUNDTRIP", "-Dmain=__renode_unused_main", *INCLUDES,
         "-c", str(SCRIPT_DIR / lib.source_file), "-o", str(parse_o),
     ]
     r = run(cc_parse)
     if r.returncode != 0:
-        print(c(Colors.RED, f"  ✗ compile {lib.source_file} failed"))
+        print(c(Colors.RED, f"  ✗ compile {lib.source_file} ({opt}) failed"))
         print(r.stderr[-2000:])
         return None
 
     # Generic runner (provides the real main + markers).
     cc_runner = [
-        CC, "-std=c++23", *EMBEDDED_FLAGS, *M7_FLAGS, *INCLUDES,
+        CC, "-std=c++23", *EMBEDDED_FLAGS, *opt_flags, *INCLUDES,
         "-c", str(SCRIPT_DIR / "renode_runner.cpp"), "-o", str(runner_o),
     ]
     r = run(cc_runner)
     if r.returncode != 0:
-        print(c(Colors.RED, "  ✗ compile renode_runner.cpp failed"))
+        print(c(Colors.RED, f"  ✗ compile renode_runner.cpp ({opt}) failed"))
         print(r.stderr[-2000:])
         return None
 
     link = [
-        CC, *M7_FLAGS, *LINK_SPECS, "-Wl,--gc-sections",
+        CC, *opt_flags, *LINK_SPECS, "-Wl,--gc-sections",
         str(runner_o), str(parse_o), "-o", str(elf),
     ]
     r = run(link)
     if r.returncode != 0:
-        print(c(Colors.RED, f"  ✗ link {lib.name} failed"))
+        print(c(Colors.RED, f"  ✗ link {lib.name} ({opt}) failed"))
         print(r.stderr[-2000:])
         return None
     return elf
@@ -155,7 +159,7 @@ def write_resc(resc_path: Path, elf: Path) -> None:
         f"sysbus LoadELF @{elf}",
         'cpu PC `sysbus GetSymbolAddress "_start"`',
     ]
-    for m in ("cfg_begin", "rpc_begin"):
+    for m in ("cfg_begin", "cfg_mid", "rpc_begin", "rpc_mid"):
         lines.append(
             f'cpu AddHook `sysbus GetSymbolAddress "{m}"` '
             f'"cpu.Log(LogLevel.Error, \'MARK {m} {{0}}\'.format(cpu.ExecutedInstructions))"'
@@ -203,8 +207,12 @@ def measure(renode: str, elf: Path, build_dir: Path) -> Optional[Dict]:
         return None
 
     return {
-        "config": marks["cfg_end"] - marks["cfg_begin"],
-        "rpc": marks["rpc_end"] - marks["rpc_begin"],
+        "config_parse": marks["cfg_mid"] - marks["cfg_begin"],
+        "config_serialize": marks["cfg_end"] - marks["cfg_mid"],
+        "config_total": marks["cfg_end"] - marks["cfg_begin"],
+        "rpc_parse": marks["rpc_mid"] - marks["rpc_begin"],
+        "rpc_serialize": marks["rpc_end"] - marks["rpc_mid"],
+        "rpc_total": marks["rpc_end"] - marks["rpc_begin"],
         "config_ok": oks.get("cfg_end", 0),
         "rpc_ok": oks.get("rpc_end", 0),
     }
@@ -228,45 +236,60 @@ def main():
 
     print(c(Colors.GREEN, "=== Renode Instruction-Count Benchmark (Cortex-M7) ==="))
     print(c(Colors.BLUE, f"Renode:   {renode}"))
-    print(c(Colors.BLUE, f"Compiler: {CC} (M7 -Os, matches build.py)"))
+    print(c(Colors.BLUE, f"Compiler: {CC} ({' / '.join(OPT_LEVELS)}, matches build.py)"))
     print()
 
-    results: Dict[str, Dict] = {}
-    for lib in LIBRARIES:
-        print(c(Colors.YELLOW, f"[{lib.name}]"))
-        elf = build_elf(lib, build_dir)
-        if elf is None:
-            continue
-        res = measure(renode, elf, build_dir)
-        if res is None:
-            continue
-        flag = "" if (res["config_ok"] and res["rpc_ok"]) else c(Colors.RED, "  ⚠ a parse returned false!")
-        print(f"  config: {res['config']:>8} instr   rpc: {res['rpc']:>8} instr"
-              f"   (ok: cfg={res['config_ok']} rpc={res['rpc_ok']}){flag}")
-        results[lib.name] = res
-        print()
+    # results[opt][lib_name] = {config_parse, config_serialize, ...}
+    results: Dict[str, Dict[str, Dict]] = {opt: {} for opt in OPT_LEVELS}
+    for opt in OPT_LEVELS:
+        print(c(Colors.YELLOW, f"########## {opt} ##########"))
+        for lib in LIBRARIES:
+            print(c(Colors.YELLOW, f"[{lib.name} {opt}]"))
+            elf = build_elf(lib, opt, build_dir)
+            if elf is None:
+                continue
+            res = measure(renode, elf, build_dir)
+            if res is None:
+                continue
+            flag = "" if (res["config_ok"] and res["rpc_ok"]) else c(Colors.RED, "  ⚠ a parse returned false!")
+            print(f"  config: parse {res['config_parse']:>8} + serialize {res['config_serialize']:>8} = {res['config_total']:>8}")
+            print(f"  rpc:    parse {res['rpc_parse']:>8} + serialize {res['rpc_serialize']:>8} = {res['rpc_total']:>8}"
+                  f"   (ok: cfg={res['config_ok']} rpc={res['rpc_ok']}){flag}")
+            results[opt][lib.name] = res
+            print()
 
-    if not results:
+    if not any(results.values()):
         print(c(Colors.RED, "No results."))
         sys.exit(1)
 
-    # Summary table, sorted by config cost.
-    print(c(Colors.GREEN, "=== Summary: instructions to parse+validate+serialize ==="))
-    print()
-    name_w = max(len(n) for n in results)
-    print(f"{'Library':<{name_w}}   {'EmbeddedConfig':>16}   {'RpcCommand':>12}")
-    print("-" * (name_w + 35))
-    for name, r in sorted(results.items(), key=lambda kv: kv[1]["config"]):
-        print(f"{name:<{name_w}}   {r['config']:>16,}   {r['rpc']:>12,}")
-    print()
+    # Per opt level: two tables (config + rpc), each split parse / serialize / total.
+    name_w = max(len(lib.name) for lib in LIBRARIES)
+
+    def table(opt_results, title, prefix):
+        print(f"  {title}: instructions (parse | serialize | total)")
+        print(f"  {'Library':<{name_w}}   {'parse':>10}   {'serialize':>10}   {'total':>10}")
+        print("  " + "-" * (name_w + 40))
+        for name, r in sorted(opt_results.items(), key=lambda kv: kv[1][f"{prefix}_total"]):
+            print(f"  {name:<{name_w}}   {r[f'{prefix}_parse']:>10,}   "
+                  f"{r[f'{prefix}_serialize']:>10,}   {r[f'{prefix}_total']:>10,}")
+        print()
+
+    for opt in OPT_LEVELS:
+        if not results[opt]:
+            continue
+        print(c(Colors.GREEN, f"=== Summary {opt} ==="))
+        table(results[opt], "EmbeddedConfig", "config")
+        table(results[opt], "RpcCommand", "rpc")
+
     print("Note: functional simulation — instruction counts (deterministic), not clock cycles.")
-    print("Round trip = parse + validate + serialize; every library serializes the full")
-    print("fixed-size arrays (16 motors/16 sensors, 4 targets/8 params) for equivalent work.")
+    print("Every library serializes the full fixed-size arrays (16 motors/16 sensors,")
+    print("4 targets/8 params) for equivalent work. 'parse' includes validation.")
 
     out_file = SCRIPT_DIR / "results_instructions_arm_cortex-m7.json"
     out_file.write_text(json.dumps({
         "platform": "ARM Cortex-M7 (Renode functional sim)",
         "metric": "executed_instructions",
+        "opt_levels": OPT_LEVELS,
         "results": results,
     }, indent=2))
     print()

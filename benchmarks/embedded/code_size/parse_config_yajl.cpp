@@ -36,6 +36,8 @@ EC g_config_yajl;
 // Instruction-benchmark mode: serialize into a dedicated scratch buffer so the
 // parse input can be exactly the JSON. The code-size benchmark is unaffected.
 static char jf_perf_scratch[16384];
+extern "C" void cfg_mid();  // parse/serialize boundary markers (defined in the runner)
+extern "C" void rpc_mid();
 #endif
 
 // ---------------------------------------------------------------------------
@@ -448,6 +450,7 @@ extern "C" __attribute__((used)) bool parse_config(const char* data, size_t size
     bool success = (st == yajl_status_ok) && ctx.ok && (ctx.seen == ec_sax::SEEN_ALL);
     if (success) {
 #ifdef JF_PERF_ROUNDTRIP
+        cfg_mid();
         success = serialize_config_yajl(g_config_yajl, jf_perf_scratch, sizeof(jf_perf_scratch)) > 0;
 #else
         char* d = const_cast<char*>(data);
@@ -774,6 +777,7 @@ extern "C" __attribute__((used)) bool parse_rpc_command(const char* data, size_t
     bool success = (st == yajl_status_ok) && ctx.ok && (ctx.seen == rpc_sax::SEEN_ALL);
     if (success) {
 #ifdef JF_PERF_ROUNDTRIP
+        rpc_mid();
         success = serialize_rpc_command_yajl(cmd, jf_perf_scratch, sizeof(jf_perf_scratch)) > 0;
 #else
         char* d = const_cast<char*>(data);
