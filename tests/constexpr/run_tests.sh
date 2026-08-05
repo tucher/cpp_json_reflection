@@ -8,11 +8,42 @@ INCLUDE_DIR="./include"
 TMP_DIR="/tmp/jsonfusion_constexpr_tests"
 mkdir -p "$TMP_DIR"
 
-echo "Running JsonFusion constexpr tests..."
-echo "======================================="
+# ── Lane selection ─────────────────────────────────────────────────
+# The corpus is backend-agnostic: it runs through either the C++26 native
+# reflection path or the Boost.PFR (C++20/23) fallback, selected purely by
+# compiler flags. Both lanes run the *full* corpus.
+#
+#   ./run_tests.sh                # default: C++26 reflection (GCC 16+)
+#   ./run_tests.sh --pfr          # Boost.PFR fallback lane (C++23)
+#   ./run_tests.sh --both         # run both lanes and report combined result
+#
+# Explicit CXX / CXX_FLAGS env vars still override the lane defaults.
+LANE="${LANE:-reflection}"
+case "${1:-}" in
+  --reflection|reflection) LANE=reflection; shift ;;
+  --pfr|pfr)               LANE=pfr;        shift ;;
+  --both|both)             LANE=both;       shift ;;
+esac
 
-: ${CXX:=g++}
-: ${CXX_FLAGS:=-std=c++23}
+if [ "$LANE" = "both" ]; then
+  echo "Running BOTH lanes: C++26 reflection, then Boost.PFR (C++23)"
+  echo "======================================="
+  rc=0
+  "$0" --reflection || rc=1
+  echo ""
+  "$0" --pfr        || rc=1
+  echo "======================================="
+  if [ "$rc" -eq 0 ]; then echo "✅ Both lanes passed!"; else echo "❌ At least one lane failed"; fi
+  exit "$rc"
+fi
+
+case "$LANE" in
+  pfr)        : ${CXX:=g++-16}; : ${CXX_FLAGS:=-std=c++23} ;;
+  reflection) : ${CXX:=g++-16}; : ${CXX_FLAGS:=-std=c++26 -freflection} ;;
+esac
+
+echo "Running JsonFusion constexpr tests ($LANE lane)..."
+echo "======================================="
 
 echo "Compiler: $CXX"
 echo "Flags: $CXX_FLAGS"

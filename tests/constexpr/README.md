@@ -1,14 +1,28 @@
 # JsonFusion Constexpr Tests
 
-Compile-time tests for JsonFusion using C++23 `static_assert`. Tests run during compilation—if it compiles, tests passed.
+Compile-time tests for JsonFusion using `static_assert`. Tests run during compilation—if it compiles, tests passed.
+
+The corpus is **backend-agnostic**: the exact same tests run through either the
+C++26 native reflection path or the Boost.PFR (C++20/23) fallback, chosen purely
+by compiler flags. The runner defaults to C++26 reflection (GCC 16+) and offers a
+PFR fallback lane so both introspection backends stay covered.
 
 ## Quick Start
 
 ```bash
-# Run all tests
+# Default: run the full suite with C++26 native reflection (GCC 16+)
 ./run_tests.sh
 
-# Run single test
+# Boost.PFR fallback lane (C++20/23)
+./run_tests.sh --pfr
+
+# Run BOTH lanes and report a combined result
+./run_tests.sh --both
+
+# Override compiler/flags explicitly (still honored)
+CXX=g++-16 CXX_FLAGS="-std=c++26 -freflection" ./run_tests.sh
+
+# Run a single test (PFR path)
 g++ -std=c++23 -I../../include -c test_parse_int.cpp
 ```
 
@@ -231,7 +245,7 @@ static_assert(TestRoundTrip(R"({"port":8080,"enabled":true})",
 
 ## Notes
 
-- **C++23 required** - Takes advantage of improved constexpr support
+- **Two introspection backends** - The default lane uses C++26 native reflection (GCC 16+, `-std=c++26 -freflection`); the `--pfr` lane uses Boost.PFR (C++23+). The corpus itself is backend-agnostic — `test_helpers.hpp` routes struct comparison through JsonFusion's own introspection layer, so no test depends on Boost.PFR directly.
 - **Floats fully constexpr** - In-house FP parser is constexpr-compatible
 - **Null-termination guaranteed** - Char arrays are always null-terminated by parser
 

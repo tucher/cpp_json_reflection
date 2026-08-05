@@ -101,7 +101,7 @@ Package managers: [Conan](docs/conan_usage.md), [vcpkg](docs/vcpkg_usage.md), [P
 ### Requirements
 
 - **C++23** or later
-- **Compiler: GCC 14+, clang20+** (other compilers not currently supported)
+- **Compiler: GCC 14+ or Clang 20+** (other compilers not currently supported). The optional C++26 reflection mode requires **GCC 16+** (`-std=c++26 -freflection`).
 - **Boost.PFR** (bundled into `/include`, no separate installation needed)
 
 ## Quick Start
@@ -136,7 +136,7 @@ how it is usually done in Python, Java, Go, etc..
 - **Competitive binary footprint**: On embedded ARM (Cortex-M7 and Cortex-M0+) and on Esp32, on typical application setup with `-Os` JsonFusion matches or beats popular json embedded libraries while maintaining modern C++23 type safety and declarative validation. 
 - The implementation conforms to the JSON standard (including arbitrary field order in objects)
 - Validation of JSON shape and structure, field types compatibility and schema, all done in a single parsing pass
-- No macros, no codegen, no registration – relies on PFR-driven introspection (or C++26 native reflection when available)
+- No macros, no codegen, no registration – relies on PFR-driven introspection (or C++26 native reflection on GCC 16+)
 - Works with deeply nested structs, arrays, strings, and arithmetic types out of the box
 - No data-driven recursion in the parser: recursion depth is bounded by your C++ type nesting, not by JSON depth. With only
  fixed-size containers, there is no unbounded stack growth.
@@ -558,7 +558,7 @@ With the default `JSONFUSION_FP_BACKEND=0`, there are no explicit runtime depend
 Less work means both faster execution *and* smaller binaries.
 It is all about avoiding doing the same work multiple times.
 
-JsonFusion leverages **compile-time reflection** through Boost.PFR (or C++26 native reflection when available), enabling the compiler to know everything about your types before runtime. C++26 reflection support is already implemented and tested with GCC 16 (`-std=c++26 -freflection`), providing zero-dependency introspection and native `[[=A<...>{}]]` annotation syntax as an alternative to `Annotated<T, ...>` wrappers.
+JsonFusion leverages **compile-time reflection** through Boost.PFR (or C++26 native reflection on GCC 16+), enabling the compiler to know everything about your types before runtime. C++26 reflection support is already implemented and tested with GCC 16 (`-std=c++26 -freflection`), providing zero-dependency introspection and native `[[=A<...>{}]]` annotation syntax as an alternative to `Annotated<T, ...>` wrappers.
 
 ### Binary Size (Embedded Focus)
 
@@ -1174,7 +1174,7 @@ g++-14 -std=c++23 -I./include -o /tmp/json_schema_demo ./examples/json_schema_de
 
 ## Limitations and When NOT to Use
 
-- **Requires GCC 14, Cland 20 or newer**. Other compilers (MSVC, older GCC versions) are not currently supported due to template instantiation complexity and performance characteristics.
+- **Requires GCC 14, Clang 20 or newer** (GCC 16+ for the optional C++26 reflection mode). Other compilers (MSVC, older GCC versions) are not currently supported due to template instantiation complexity and performance characteristics.
 - Designed for C++23 aggregates (POD-like structs). Classes with custom constructors, virtual methods, etc. are not automatically reflectable. *(C++26 reflection removes this limitation—non-aggregate types are fully supported with GCC 16+ and `-std=c++26 -freflection`.)*
 - Relies on PFR in C++20/23 mode; a few exotic compilers/ABIs may not be supported. *(C++26 reflection mode has zero external dependencies.)*
 - **`THIS IS NOT A JSON DOM LIBRARY.`** It shines when you have a known schema and want to map JSON directly from/into C++ types; if you need a generic JSON tree and ad-hoc editing, JsonFusion is not the right tool; consider using it alongside a DOM library.

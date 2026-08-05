@@ -132,8 +132,17 @@ static_assert(
     "Valid: nested objects"
 );
 
-// Test 9: Empty arrays - SKIPPED (std::array<int, 0> has issues with PFR in constexpr)
-// Note: Empty arrays are problematic with Boost.PFR in constexpr context
+// Test 9: Empty arrays
+struct WithEmptyArray {
+    std::array<int, 0> empty;
+    int other;
+};
+
+static_assert(
+    TestParse(R"({"empty": [], "other": 7})",
+        WithEmptyArray{{}, 7}),
+    "Valid: empty array"
+);
 
 // Test 10: Single element arrays
 struct WithSingleElement {

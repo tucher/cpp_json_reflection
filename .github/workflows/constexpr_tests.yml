@@ -7,14 +7,30 @@ on:
 
 jobs:
   constexpr-tests:
+    name: constexpr (${{ matrix.lane }})
     runs-on: ubuntu-latest
+    strategy:
+      # Report both lanes independently instead of cancelling on first failure.
+      fail-fast: false
+      matrix:
+        include:
+          # Primary lane: C++26 native reflection (GCC 16+, -std=c++26 -freflection)
+          - lane: reflection
+            image: gcc:16
+          # Fallback lane: Boost.PFR on the baseline compiler (C++23)
+          - lane: pfr
+            image: gcc:14
     container:
-      image: gcc:14
+      image: ${{ matrix.image }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Run constexpr test suite
+      - name: Run constexpr test suite (${{ matrix.lane }} lane)
         working-directory: tests/constexpr
+        env:
+          # Use the image's default g++ (16 in gcc:16, 14 in gcc:14) rather than
+          # the runner's g++-16 default; the lane flag sets the std/reflection flags.
+          CXX: g++
         run: |
           chmod +x ./run_tests.sh
-          ./run_tests.sh
+          ./run_tests.sh --${{ matrix.lane }}

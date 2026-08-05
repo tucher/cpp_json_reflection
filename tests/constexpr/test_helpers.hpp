@@ -4,9 +4,11 @@
 #include <JsonFusion/serializer.hpp>
 #include <string_view>
 #include <cstddef>
-#include <pfr/tuple_size.hpp>
-#include <pfr/core.hpp>
-#include <pfr/traits.hpp>
+#include <type_traits>
+#include <utility>
+// NOTE: no direct Boost.PFR dependency here. Struct comparison goes through
+// JsonFusion's own introspection layer, which dispatches to Boost.PFR (C++20/23)
+// or C++26 reflection automatically depending on the compiler/flags.
 
 namespace TestHelpers {
 
@@ -164,7 +166,7 @@ constexpr bool ArrayEqual(const std::array<T, N>& arr, const T (&expected)[N]) {
 }
 
 // ============================================================================
-// Struct Comparison Helpers (Using PFR)
+// Struct Comparison Helpers (backend-agnostic: Boost.PFR or C++26 reflection)
 // ============================================================================
 
 /// Compare two values field-by-field (constexpr-safe)
@@ -204,11 +206,15 @@ constexpr bool DeepEqual(const T& a, const T& b) {
         if (a_null) return true;  // Both are null
         return DeepEqual(*a, *b);
     }
-    // For aggregate types (structs), use PFR to compare field-by-field
-    else if constexpr (pfr::is_implicitly_reflectable_v<T, T>) {
-        constexpr std::size_t fields_count = pfr::tuple_size_v<T>;
+    // For structs, compare field-by-field via JsonFusion's own introspection,
+    // which dispatches to Boost.PFR (C++20/23) or C++26 reflection automatically.
+    // Exclude begin/end types (e.g. std::array) so they take the container branch below.
+    else if constexpr (std::is_aggregate_v<T> && !requires(const T& x) { x.begin(); x.end(); }) {
+        constexpr std::size_t fields_count = JsonFusion::introspection::structureElementsCount<T>;
         return [&]<std::size_t... I>(std::index_sequence<I...>) {
-            return (... && DeepEqual(pfr::get<I>(a), pfr::get<I>(b)));
+            return (... && DeepEqual(
+                JsonFusion::introspection::getStructElementByIndex<I>(a),
+                JsonFusion::introspection::getStructElementByIndex<I>(b)));
         }(std::make_index_sequence<fields_count>{});
     }
     // For char arrays, only compare up to null terminator

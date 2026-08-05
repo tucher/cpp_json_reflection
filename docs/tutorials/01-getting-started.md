@@ -18,7 +18,7 @@ Save any example below as `example.cpp`, then compile and run:
 g++ -std=c++23 -I include example.cpp -o example && ./example
 ```
 
-**Requirements:** GCC 14+ or Clang 20+ with C++23 support.
+**Requirements:** GCC 14+ or Clang 20+ with C++23 support. (For the optional C++26 reflection mode, use GCC 16+ with `-std=c++26 -freflection`.)
 
 ## Your First Parse
 

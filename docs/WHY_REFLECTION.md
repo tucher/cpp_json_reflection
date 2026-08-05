@@ -284,8 +284,8 @@ Today, this is built on top of libraries like Boost.PFR, which can:
 Boost.PFR does have limitations: it only works with aggregates (no user-defined constructors), doesn't support private/protected fields, and has no direct support for inheritance. However, these limitations align naturally with the use case of JSON data models. Configuration and data-transfer structures are almost always plain aggregates: public fields, default construction, no complex invariants or encapsulation. These are *data*, not *objects* in the OOP sense — they're meant to be transparent bags of values that map directly to JSON structure. For this domain, PFR's constraints are not limitations; they're actually a good match for the problem space.
 
 
-Upcoming C++ proposals (aimed at C++26 and beyond) provide native reflection and better structured bindings, e.g.:
-- static reflection [P2996](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2025/p2996r13.html)
+C++26 standardizes native reflection and better structured bindings, e.g.:
+- static reflection [P2996](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2025/p2996r13.html) — adopted into C++26 and already usable in JsonFusion today with GCC 16 (`-std=c++26 -freflection`)
 - variadic structured bindings [P1061R10](https://isocpp.org/files/papers/P1061R10.html)
 
 These are all pushing in the same direction:
@@ -294,7 +294,7 @@ Make it easy and standard to introspect aggregates and generate code at compile 
 For JsonFusion, the details don’t change the philosophy:
 - whether the library uses Boost.PFR tricks,
 - PFR with variadic structured bindings,
-- or future standard reflection,
+- or standard C++26 reflection (available today on GCC 16),
 
 the user-facing story is the same:
 
@@ -725,9 +725,9 @@ The broader C++ ecosystem is clearly moving toward:
 - standard reflection,
 - and more type-driven design.
 
-JsonFusion is built around that trajectory:
-- Today: Boost.PFR + templates + constexpr to generate specialized parsers from your types.
-- Tomorrow: the same philosophy on top of standard reflection and whatever facilities C++26 and beyond bring.
+JsonFusion is built around that trajectory — and as of 2026, that future has arrived:
+- The C++20/23 path: Boost.PFR + templates + constexpr to generate specialized parsers from your types.
+- The C++26 path: the same philosophy on top of standard reflection — available today with GCC 16 (`-std=c++26 -freflection`), with zero external dependencies.
 
 The core idea doesn’t change:
 

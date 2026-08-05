@@ -359,12 +359,12 @@ static_assert(test_both_syntaxes_different_validators(),
     "Complex mixed struct with both syntaxes and different validators");
 
 // ============================================================================
-// Test: Non-POD types (C++26 reflection advantage over PFR)
+// Test: Non-POD types (only C++26 reflection can introspect non-aggregates)
 // ============================================================================
 
 // Non-POD structs defined at namespace scope to avoid overload ambiguity
 
-// Non-POD: Has user-defined constructor (PFR can't handle this!)
+// Non-POD: Has user-defined constructor (not an aggregate)
 struct NonPodWithConstructor {
     [[=A<range<0, 100>>{}]] int value;
     std::string name;
@@ -450,7 +450,7 @@ static_assert(test_non_pod_with_methods(),
     "C++26 reflection ignores methods, only sees data members");
 
 // ============================================================================
-// Test: C-style arrays in structs (another PFR limitation)
+// Test: C-style arrays in structs (reflection-only introspection)
 // ============================================================================
 
 // Simple 1D C array
