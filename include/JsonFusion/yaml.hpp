@@ -1,4 +1,8 @@
 #pragma once
+
+// Optional YAML backend (rapidyaml). Guarded so this header is always safe to
+// include: it compiles to nothing unless <rapidyaml.hpp> is on the include path.
+#if __has_include(<rapidyaml.hpp>)
 #include <rapidyaml.hpp>
 #include <cstring>
 #include <string>
@@ -1258,3 +1262,5 @@ private:
 static_assert(writer::WriterLike<RapidYamlWriter>);
 
 } // namespace JsonFusion
+
+#endif // __has_include(<rapidyaml.hpp>)

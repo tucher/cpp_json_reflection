@@ -1,4 +1,8 @@
 #pragma once
+
+// Optional high-performance backend (yyjson). Guarded so this header is always
+// safe to include: it compiles to nothing unless <yyjson.h> is on the include path.
+#if __has_include(<yyjson.h>)
 #include <yyjson.h>
 #include <cstring>
 #include <string>
@@ -1090,3 +1094,5 @@ private:
 };
 static_assert(writer::WriterLike<YyjsonWriter>);
 } // namespace JsonFusion
+
+#endif // __has_include(<yyjson.h>)

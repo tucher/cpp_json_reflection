@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.14)  # FetchContent requires 3.11+, using 3.14 for better support
 
-project(JsonFusion VERSION 1.1.0 LANGUAGES CXX C)
+project(JsonFusion VERSION 1.1.1 LANGUAGES CXX C)
 
 # Option to enable C++26 reflection mode
 option(JSONFUSION_CPP26_REFLECTION "Enable C++26 reflection mode (excludes glaze, adds -freflection)" OFF)
