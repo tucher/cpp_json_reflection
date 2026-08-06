@@ -1,6 +1,6 @@
 {
   "name": "JsonFusion",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Type-driven JSON/CBOR parser and serializer with declarative validation. Parse JSON directly into your C++ structs with zero boilerplate. Header-only, compile-time reflection-driven, embedded-friendly.",
   "keywords": [
     "json",

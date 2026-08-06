@@ -10,4 +10,3 @@
 
 # Add compatibility checks into validators/options
 
-# Add support for inheritance

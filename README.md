@@ -585,12 +585,12 @@ JsonFusion is benchmarked on multiple embedded platforms: **ARM Cortex-M7/M0+** 
 
 | Library                               |     M7    |    M0+    |  Version   |
 |---------------------------------------|-----------|-----------|------------|
-| **JsonFusion CBOR**                   |  17.0 KB |  24.2 KB | b34c42df   |
+| **JsonFusion CBOR**                   |  17.0 KB |  24.2 KB | dce75cf3   |
 | ArduinoJson                           |  20.0 KB |  29.2 KB | v7.4.3     |
-| **JsonFusion**                        |  21.5 KB |  31.4 KB | b34c42df   |
+| **JsonFusion**                        |  21.8 KB |  31.7 KB | dce75cf3   |
 | cJSON                                 |  25.4 KB |  35.2 KB | fb16e5cf   |
 | yajl                                  |  28.3 KB |  37.5 KB | 5e3a7856   |
-| Glaze(with embedded-friendly config)  |  29.8 KB |  36.3 KB | ed83d92d   |
+| Glaze(with embedded-friendly config)  |  30.4 KB |  36.9 KB | ba2a514b   |
 
 **Key Takeaways:**
 
@@ -614,10 +614,10 @@ JsonFusion is benchmarked on multiple embedded platforms: **ARM Cortex-M7/M0+** 
 
 | Library                               |   ESP32   |  Version   |
 |---------------------------------------|-----------|------------|
-| **JsonFusion CBOR**                   |  20.3 KB | b34c42df   |
+| **JsonFusion CBOR**                   |  20.3 KB | dce75cf3   |
 | ArduinoJson                           |  25.1 KB | v7.4.3     |
-| **JsonFusion**                        |  25.7 KB | b34c42df   |
-| Glaze(with embedded-friendly config)  |  34.5 KB | ed83d92d   |
+| **JsonFusion**                        |  26.1 KB | dce75cf3   |
+| Glaze(with embedded-friendly config)  |  35.0 KB | ba2a514b   |
 | yajl                                  |  58.9 KB | 5e3a7856   |
 | cJSON                                 |  65.1 KB | fb16e5cf   |
 

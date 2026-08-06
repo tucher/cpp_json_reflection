@@ -8,8 +8,46 @@
 #include "writer_concept.hpp"
 #include <cmath>
 #include <cstring>
+#include <cstdint>
 
 namespace JsonFusion {
+
+// ── Table-free incremental UTF-8 validator (Unicode Table 3-7) ─────────────
+// Rejects overlong encodings, UTF-16 surrogates (U+D800..U+DFFF) and code
+// points > U+10FFFF. No lookup table, so it stays cheap on constrained targets.
+namespace utf8_detail {
+    inline constexpr std::uint32_t UTF8_ACCEPT = 0;
+    inline constexpr std::uint32_t UTF8_REJECT = 0xFFFFFFFFu;
+
+    constexpr std::uint32_t utf8_pack(std::uint32_t need, unsigned lo, unsigned hi) {
+        return (need << 16) | (static_cast<std::uint32_t>(lo) << 8) | static_cast<std::uint32_t>(hi);
+    }
+
+    // Feed one byte. UTF8_ACCEPT means no partial multibyte sequence is pending;
+    // any other (non-REJECT) value encodes (bytes_left, lo, hi) for the next byte.
+    constexpr std::uint32_t utf8_step(std::uint32_t state, unsigned char b) {
+        if (state == UTF8_ACCEPT) {
+            if (b < 0x80u)  return UTF8_ACCEPT;                 // ASCII
+            if (b < 0xC2u)  return UTF8_REJECT;                 // stray continuation / overlong lead (C0,C1)
+            if (b < 0xE0u)  return utf8_pack(1, 0x80u, 0xBFu);  // C2-DF
+            if (b == 0xE0u) return utf8_pack(2, 0xA0u, 0xBFu);  // exclude overlong
+            if (b < 0xEDu)  return utf8_pack(2, 0x80u, 0xBFu);  // E1-EC
+            if (b == 0xEDu) return utf8_pack(2, 0x80u, 0x9Fu);  // exclude surrogates
+            if (b < 0xF0u)  return utf8_pack(2, 0x80u, 0xBFu);  // EE-EF
+            if (b == 0xF0u) return utf8_pack(3, 0x90u, 0xBFu);  // exclude overlong
+            if (b < 0xF4u)  return utf8_pack(3, 0x80u, 0xBFu);  // F1-F3
+            if (b == 0xF4u) return utf8_pack(3, 0x80u, 0x8Fu);  // exclude > U+10FFFF
+            return UTF8_REJECT;                                 // F5-FF
+        }
+        if (state == UTF8_REJECT) return UTF8_REJECT;
+        const std::uint32_t need = state >> 16;
+        const unsigned lo = (state >> 8) & 0xFFu;
+        const unsigned hi = state & 0xFFu;
+        if (b < lo || b > hi) return UTF8_REJECT;
+        if (need == 1) return UTF8_ACCEPT;
+        return utf8_pack(need - 1u, 0x80u, 0xBFu);
+    }
+}
 
 enum class JsonIteratorReaderError {
     NO_ERROR,
@@ -23,7 +61,8 @@ enum class JsonIteratorReaderError {
     ILLFORMED_ARRAY,
     WIRE_SINK_OVERFLOW,
     SKIPPING_STACK_OVERFLOW,
-    NUMERIC_VALUE_IS_OUT_OF_STORAGE_TYPE_RANGE
+    NUMERIC_VALUE_IS_OUT_OF_STORAGE_TYPE_RANGE,
+    INVALID_UTF8
 };
 
 template<class It, class Sent, std::size_t MaxSkipNesting = 64>
@@ -395,6 +434,7 @@ public:
                 return {reader::StringChunkStatus::no_match, 0, false};
             }
             in_string_ = true;
+            utf8_state_ = utf8_detail::UTF8_ACCEPT;
             ++current_; // consume opening '"'
         }
 
@@ -402,6 +442,11 @@ public:
             // If buffer is full, but the next char is the closing quote,
             // we can still finish the string in this call.
             if (!atEnd() && *current_ == '"') {
+                if (utf8_state_ != utf8_detail::UTF8_ACCEPT) {
+                    setError(JsonIteratorReaderError::INVALID_UTF8);
+                    in_string_ = false; string_buf_len_ = 0; string_buf_pos_ = 0;
+                    return reader::StringChunkResult{reader::StringChunkStatus::error, written_bytes, false};
+                }
                 ++current_;
                 in_string_      = false;
                 string_buf_len_ = 0;
@@ -456,6 +501,14 @@ public:
                     break;
                 }
 
+                // Validate raw UTF-8 incrementally (state persists across chunks).
+                utf8_state_ = utf8_detail::utf8_step(utf8_state_, uc);
+                if (utf8_state_ == utf8_detail::UTF8_REJECT) {
+                    setError(JsonIteratorReaderError::INVALID_UTF8);
+                    in_string_ = false; string_buf_len_ = 0; string_buf_pos_ = 0;
+                    return {reader::StringChunkStatus::error, written, false};
+                }
+
                 out[written++] = c;
                 ++current_;
             }
@@ -473,6 +526,14 @@ public:
             }
 
             char c = *current_;
+
+            // A special char (quote / backslash / control) is a non-continuation
+            // byte: if a multibyte UTF-8 sequence was still pending, it's truncated.
+            if (utf8_state_ != utf8_detail::UTF8_ACCEPT) {
+                setError(JsonIteratorReaderError::INVALID_UTF8);
+                in_string_ = false; string_buf_len_ = 0; string_buf_pos_ = 0;
+                return {reader::StringChunkStatus::error, written, false};
+            }
 
             // ---- Slow path: special characters ----
 
@@ -999,6 +1060,7 @@ private:
     std::size_t    string_buf_len_  = 0;
     std::size_t    string_buf_pos_  = 0;
     bool   in_string_       = false;
+    std::uint32_t  utf8_state_ = utf8_detail::UTF8_ACCEPT; // incremental raw-UTF-8 validation state
 
     constexpr void setError(JsonIteratorReaderError e) {
         m_error = e;
@@ -1233,7 +1295,10 @@ private:
             return false;
         }
         ++current_;
-        
+
+        // Incremental UTF-8 validation of raw string bytes (skipped values / keys).
+        std::uint32_t st = utf8_detail::UTF8_ACCEPT;
+
         // Read until closing quote
         while (true) {
             if (atEnd()) {
@@ -1245,6 +1310,10 @@ private:
             
             // Closing quote
             if (c == '"') {
+                if (st != utf8_detail::UTF8_ACCEPT) {
+                    setError(JsonIteratorReaderError::INVALID_UTF8);
+                    return false;
+                }
                 if (!f('"')) {
                     setError(JsonIteratorReaderError::WIRE_SINK_OVERFLOW);
                     return false;
@@ -1255,6 +1324,10 @@ private:
             
             // Escape sequence
             if (c == '\\') {
+                if (st != utf8_detail::UTF8_ACCEPT) {
+                    setError(JsonIteratorReaderError::INVALID_UTF8);
+                    return false;
+                }
                 if (!f('\\')) {
                     setError(JsonIteratorReaderError::WIRE_SINK_OVERFLOW);
                     return false;
@@ -1405,7 +1478,12 @@ private:
                 return false;
             }
             
-            // Normal character - just copy
+            // Normal character - validate raw UTF-8, then copy
+            st = utf8_detail::utf8_step(st, static_cast<unsigned char>(c));
+            if (st == utf8_detail::UTF8_REJECT) {
+                setError(JsonIteratorReaderError::INVALID_UTF8);
+                return false;
+            }
             if (!f(c)) {
                 setError(JsonIteratorReaderError::WIRE_SINK_OVERFLOW);
                 return false;
@@ -1502,7 +1580,8 @@ static_assert(JsonFusion::reader::ReaderLike<JsonIteratorReader<char*, char*, 64
 
 enum class JsonIteratorWriterError {
     NO_ERROR,
-    OUTPUT_OVERFLOW
+    OUTPUT_OVERFLOW,
+    INVALID_UTF8
 };
 
 template<class It, class Sent, bool Pretty = false>
@@ -1530,6 +1609,7 @@ public:
     It m_errorPos;
     It m_current;
     std::size_t m_bytesWritten = 0;
+    std::uint32_t utf8_state_ = utf8_detail::UTF8_ACCEPT; // incremental UTF-8 validation of emitted string bytes
     Sent end_;
     constexpr It current() {
         return m_current;
@@ -1758,6 +1838,7 @@ public:
             setError(JsonIteratorWriterError::OUTPUT_OVERFLOW);
             return false;
         }
+        utf8_state_ = utf8_detail::UTF8_ACCEPT;
         *m_current++ = '"'; m_bytesWritten++;
         return true;
     }
@@ -1821,6 +1902,11 @@ public:
                 while (run < e) {
                     unsigned char uc = static_cast<unsigned char>(*run);
                     if (*run == '"' || *run == '\\' || uc < 0x20) break;
+                    utf8_state_ = utf8_detail::utf8_step(utf8_state_, uc);
+                    if (utf8_state_ == utf8_detail::UTF8_REJECT) {
+                        setError(JsonIteratorWriterError::INVALID_UTF8);
+                        return false;
+                    }
                     ++run;
                 }
 
@@ -1837,8 +1923,14 @@ public:
                     continue;
                 }
 
-                // Slow path: one byte requiring escaping
+                // Slow path: one byte requiring escaping. A special (ASCII) byte
+                // interrupting a pending multibyte sequence makes it truncated/invalid.
                 unsigned char uc = static_cast<unsigned char>(*p++);
+                utf8_state_ = utf8_detail::utf8_step(utf8_state_, uc);
+                if (utf8_state_ == utf8_detail::UTF8_REJECT) {
+                    setError(JsonIteratorWriterError::INVALID_UTF8);
+                    return false;
+                }
                 switch (uc) {
                 case '"':  if (!put2('\\', '"'))  return false; break;
                 case '\\': if (!put2('\\', '\\')) return false; break;
@@ -1872,6 +1964,11 @@ public:
                 while (run < e) {
                     unsigned char uc = static_cast<unsigned char>(*run);
                     if (*run == '"' || *run == '\\' || uc < 0x20) break;
+                    utf8_state_ = utf8_detail::utf8_step(utf8_state_, uc);
+                    if (utf8_state_ == utf8_detail::UTF8_REJECT) {
+                        setError(JsonIteratorWriterError::INVALID_UTF8);
+                        return false;
+                    }
                     ++run;
                 }
 
@@ -1882,6 +1979,11 @@ public:
                 if (p == e) break;
 
                 unsigned char uc = static_cast<unsigned char>(*p++);
+                utf8_state_ = utf8_detail::utf8_step(utf8_state_, uc);
+                if (utf8_state_ == utf8_detail::UTF8_REJECT) {
+                    setError(JsonIteratorWriterError::INVALID_UTF8);
+                    return false;
+                }
                 switch (uc) {
                 case '"':  if (!put_generic('\\') || !put_generic('"'))  return false; break;
                 case '\\': if (!put_generic('\\') || !put_generic('\\')) return false; break;
@@ -1906,6 +2008,11 @@ public:
 
     
     __attribute__((noinline)) constexpr bool write_string_end() {
+        // A string that ends mid-sequence held a truncated multibyte code point.
+        if (utf8_state_ != utf8_detail::UTF8_ACCEPT) {
+            setError(JsonIteratorWriterError::INVALID_UTF8);
+            return false;
+        }
         if(m_current == end_) {
             setError(JsonIteratorWriterError::OUTPUT_OVERFLOW);
             return false;

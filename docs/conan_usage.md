@@ -42,7 +42,7 @@ The version is automatically extracted from `include/JsonFusion/version.hpp`.
 
 Update only `include/JsonFusion/version.hpp`:
 ```cpp
-#define JSONFUSION_VERSION "0.720.0"
+#define JSONFUSION_VERSION "1.1.0"
 ```
 
 Then `conan create .` will automatically use the new version.
